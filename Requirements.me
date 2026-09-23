@@ -148,10 +148,18 @@ HackerNewsScraper.js: Extrae los primeros 30 registros manejando casos borde (si
 HackerNewsScraper.test.js: Pruebas sobre HTML ficticio mockeado.
 
 PASO 3: Capa de Persistencia y Auditoría (Firebase)
-Objetivo: Integrar Firebase Firestore para guardar entradas y logs de auditoría.
+Objetivo: Integrar Firebase Firestore para guardar entradas y logs de auditoría, el objeto debe permitir conectar cualquier base de datos pero la principal es firebase.
 Entregables:
 
-FirestoreRepository.js: Métodos para guardar logs (saveUsageLog), guardar cache (saveEntries) y leer la configuración de frecuencia.
+FirestoreRepository.js: Métodos para guardar logs (saveUsageLog), guardar cache (saveEntries) y leer la configuración de frecuencia, usar un archivo a parte para configurar las variables de firebase (la bse de datos ya está creada):
+const firebaseConfig = {
+  apiKey: "AIzaSyCcO5oXonWAMTCcdRRa1Q-bczWCyhZdwog",
+  authDomain: "test-2eb64.firebaseapp.com",
+  projectId: "test-2eb64",
+  storageBucket: "test-2eb64.firebasestorage.app",
+  messagingSenderId: "49121312615",
+  appId: "1:49121312615:web:973e681cd224fb0530b9c2"
+};
 
 PASO 4: Backend Serverless en Cloudflare Worker
 Objetivo: Crear el backend con soporte HTTP (On-Demand) y tareas programadas (Cron Trigger).

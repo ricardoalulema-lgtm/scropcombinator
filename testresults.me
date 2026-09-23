@@ -1,4 +1,5 @@
 ﻿
+ Step 1
  RUN  v5.0.1 C:/Users/SUPERTRONICA/Documents/Proyectos/scropcombinator/backend
 
  Ô£ô tests/WordCounter.test.js > WordCounter > counts exactly 5 words for "This is - a self-explained example" (excludes the isolated symbol) 6ms
@@ -42,7 +43,7 @@
    Start at  10:11:31
    Duration  6.36s (import 92%, transform 5%, tests 3%, worker 1%)
 
-
+Step 2
 
 --- Smoke test contra https://news.ycombinator.com/ (sitio real) ---
 Total entries: 30
@@ -78,4 +79,251 @@ Total entries: 30
     "comments": 10
   }
 ]
+
+
+step 2 - test real web
+[
+  {
+    "number": 1,
+    "title": "Claude discovers a novel enzyme system with CRISPR-like repeats",
+    "points": 130,
+    "comments": 106
+  },
+  {
+    "number": 2,
+    "title": "Fixing the Portobello Police Station Clock",
+    "points": 283,
+    "comments": 67
+  },
+  {
+    "number": 3,
+    "title": "A brief history of Windows scroll bar shortcuts",
+    "points": 35,
+    "comments": 10
+  },
+  {
+    "number": 4,
+    "title": "Italian parliament votes for return to nuclear energy",
+    "points": 247,
+    "comments": 114
+  },
+  {
+    "number": 5,
+    "title": "Cloud Agents Are Inevitable AI Prisons",
+    "points": 16,
+    "comments": 3
+  },
+  {
+    "number": 6,
+    "title": "How we made claude.ai 3x faster in two weeks",
+    "points": 9,
+    "comments": 0
+  },
+  {
+    "number": 7,
+    "title": "Gemini 3.8 text-to-speech",
+    "points": 168,
+    "comments": 90
+  },
+  {
+    "number": 8,
+    "title": "Radicle: Disclosure of Vulnerability in the Network Protocol",
+    "points": 73,
+    "comments": 28
+  },
+  {
+    "number": 9,
+    "title": "Jev in 25 Lines of Python",
+    "points": 550,
+    "comments": 169
+  },
+  {
+    "number": 10,
+    "title": "GPT-6 Sol and Luna",
+    "points": 1702,
+    "comments": 813
+  },
+  {
+    "number": 11,
+    "title": "Claude Opus 5.5",
+    "points": 1742,
+    "comments": 1057
+  },
+  {
+    "number": 12,
+    "title": "Claude Code reads AGENTS.md only when telemetry is on [fixed]",
+    "points": 402,
+    "comments": 232
+  },
+  {
+    "number": 13,
+    "title": "Z80 REPL (2018)",
+    "points": 121,
+    "comments": 16
+  },
+  {
+    "number": 14,
+    "title": "UK military jamming other nations' satellites to defend itself, BBC told",
+    "points": 62,
+    "comments": 88
+  },
+  {
+    "number": 15,
+    "title": "Stripe's Knowledge AI Platform",
+    "points": 138,
+    "comments": 92
+  },
+  {
+    "number": 16,
+    "title": "28% of job postings on company career sites have been open over 90 days",
+    "points": 135,
+    "comments": 195
+  },
+  {
+    "number": 17,
+    "title": "I don't want the details",
+    "points": 265,
+    "comments": 165
+  },
+  {
+    "number": 18,
+    "title": "Tokens Too Cheap to Meter",
+    "points": 169,
+    "comments": 139
+  },
+  {
+    "number": 19,
+    "title": "Seattle City Council votes to ban surveillance pricing in sale of groceries",
+    "points": 179,
+    "comments": 107
+  },
+  {
+    "number": 20,
+    "title": "QuestDB (YC S20) Is Hiring a Sales Engineer",
+    "points": 0,
+    "comments": 0
+  },
+  {
+    "number": 21,
+    "title": "Strands Harness",
+    "points": 108,
+    "comments": 82
+  },
+  {
+    "number": 22,
+    "title": "Web-based IBM 1620 emulator and IPL-V from 1963",
+    "points": 27,
+    "comments": 6
+  },
+  {
+    "number": 23,
+    "title": "OpenAI GPT–6 Astra breaks Enigma message that has resisted solution since 2005",
+    "points": 715,
+    "comments": 428
+  },
+  {
+    "number": 24,
+    "title": "Transit rewards",
+    "points": 237,
+    "comments": 290
+  },
+  {
+    "number": 25,
+    "title": "GPT-6 Astra has gained the ability to drive a car",
+    "points": 224,
+    "comments": 189
+  },
+  {
+    "number": 26,
+    "title": "What California is learning from solar panels built over irrigation canals",
+    "points": 337,
+    "comments": 659
+  },
+  {
+    "number": 27,
+    "title": "The GitHub wiki is an anti-pattern (2022)",
+    "points": 147,
+    "comments": 85
+  },
+  {
+    "number": 28,
+    "title": "How did AMD Ryzen get 50% faster in two years?",
+    "points": 464,
+    "comments": 189
+  },
+  {
+    "number": 29,
+    "title": "Microsoft killed FoxPro in 2007. Anyway, here's FoxPro revived",
+    "points": 447,
+    "comments": 243
+  },
+  {
+    "number": 30,
+    "title": "SAML: A fractal of bad design",
+    "points": 328,
+    "comments": 175
+  }
+]
+
+//Found: de <tr> tags do not have static positions.
+
+step 3
+
+ RUN  v5.0.1 C:/Users/SUPERTRONICA/Documents/Proyectos/scropcombinator/backend
+
+ Ô£ô tests/FirestoreRepository.test.js > BaseRepository > throws when saveUsageLog is not implemented 3ms
+ Ô£ô tests/FirestoreRepository.test.js > BaseRepository > throws when saveEntries is not implemented 0ms
+ Ô£ô tests/FirestoreRepository.test.js > BaseRepository > throws when getSystemConfig is not implemented 0ms
+ Ô£ô tests/FirestoreRepository.test.js > FirestoreRepository > is a substitutable BaseRepository implementation (LSP/DIP) 1ms
+ Ô£ô tests/FirestoreRepository.test.js > FirestoreRepository > requires an injected database instance 0ms
+ Ô£ô tests/FirestoreRepository.test.js > FirestoreRepository > saveUsageLog > writes a document to the usage_logs collection with all audit fields 3ms
+ Ô£ô tests/FirestoreRepository.test.js > FirestoreRepository > saveUsageLog > generates an ISO 8601 timestamp when none is provided 0ms
+ Ô£ô tests/FirestoreRepository.test.js > FirestoreRepository > saveUsageLog > keeps the exact timestamp when one is provided 0ms
+ Ô£ô tests/FirestoreRepository.test.js > FirestoreRepository > saveUsageLog > accepts execution_type SCHEDULED 0ms
+ Ô£ô tests/FirestoreRepository.test.js > FirestoreRepository > saveUsageLog > rejects an invalid execution_type 1ms
+ Ô£ô tests/FirestoreRepository.test.js > FirestoreRepository > saveUsageLog > rejects a non-object payload 0ms
+ Ô£ô tests/FirestoreRepository.test.js > FirestoreRepository > saveUsageLog > returns the created document id 0ms
+ Ô£ô tests/FirestoreRepository.test.js > FirestoreRepository > saveEntries > writes the entries array to entries_cache/latest with saved_at 0ms
+ Ô£ô tests/FirestoreRepository.test.js > FirestoreRepository > saveEntries > accepts an empty entries array 0ms
+ Ô£ô tests/FirestoreRepository.test.js > FirestoreRepository > saveEntries > rejects a non-array payload 0ms
+ Ô£ô tests/FirestoreRepository.test.js > FirestoreRepository > getSystemConfig > returns the stored configuration merged with defaults 1ms
+ Ô£ô tests/FirestoreRepository.test.js > FirestoreRepository > getSystemConfig > returns the default configuration when the document does not exist 0ms
+ Ô£ô tests/FirestoreRepository.test.js > FirestoreRepository > getSystemConfig > fills missing stored fields with defaults 0ms
+
+ Test Files  1 passed (1)
+      Tests  18 passed (18)
+   Start at  16:37:42
+   Duration  365ms (transform 54%, import 30%, tests 11%, worker 5%)
+
+
+
+step 3 - Real save test
+
+ RUN  v5.0.1 C:/Users/SUPERTRONICA/Documents/Proyectos/scropcombinator/backend
+
+stdout | tests/FirestoreRepository.integration.test.js > FirestoreRepository - real Firebase persistence flow > creates the entries in entries_cache
+saveEntries -> { docId: 'latest', entriesCount: 3, executionTimeMs: 762 }
+
+ Ô£ô tests/FirestoreRepository.integration.test.js > FirestoreRepository - real Firebase persistence flow > creates the entries in entries_cache 767ms
+stdout | tests/FirestoreRepository.integration.test.js > FirestoreRepository - real Firebase persistence flow > creates the usage log auditing the entries creation
+saveUsageLog -> { logId: '3TWmpME8gRHLM1UvBgV9', resultsCount: 3 }
+
+ Ô£ô tests/FirestoreRepository.integration.test.js > FirestoreRepository - real Firebase persistence flow > creates the usage log auditing the entries creation 181ms
+stdout | tests/FirestoreRepository.integration.test.js > FirestoreRepository - real Firebase persistence flow > retrieves the system configuration
+getSystemConfig -> { cron_enabled: true, cron_expression: '0 */1 * * *' }
+
+ Ô£ô tests/FirestoreRepository.integration.test.js > FirestoreRepository - real Firebase persistence flow > retrieves the system configuration 232ms
+stdout | tests/FirestoreRepository.integration.test.js > FirestoreRepository - real Firebase persistence flow > updates the system configuration and persists the changes
+updateSystemConfig -> { cron_enabled: true, cron_expression: '0 */1 * * *' }
+
+stdout | tests/FirestoreRepository.integration.test.js > FirestoreRepository - real Firebase persistence flow > updates the system configuration and persists the changes
+getSystemConfig after update -> { cron_enabled: true, cron_expression: '0 */1 * * *' }
+
+ Ô£ô tests/FirestoreRepository.integration.test.js > FirestoreRepository - real Firebase persistence flow > updates the system configuration and persists the changes 642ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  17:24:29
+   Duration  2.45s (tests 82%, import 14%, transform 3%)
+
 

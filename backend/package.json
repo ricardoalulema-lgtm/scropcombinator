@@ -6,12 +6,15 @@
   "main": "src/worker.js",
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:web": "vitest run tests/HackerNewsScraperWeb.test.js",
+    "test:firestore": "vitest run tests/FirestoreRepository.integration.test.js"
   },
   "devDependencies": {
     "vitest": "^5.0.1"
   },
   "dependencies": {
-    "cheerio": "^1.2.0"
+    "cheerio": "^1.2.0",
+    "firebase": "^12.19.0"
   }
 }
