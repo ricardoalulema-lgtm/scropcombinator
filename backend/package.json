@@ -10,5 +10,8 @@
   },
   "devDependencies": {
     "vitest": "^5.0.1"
+  },
+  "dependencies": {
+    "cheerio": "^1.2.0"
   }
 }

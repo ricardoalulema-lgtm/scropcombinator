@@ -1,0 +1,81 @@
+﻿
+ RUN  v5.0.1 C:/Users/SUPERTRONICA/Documents/Proyectos/scropcombinator/backend
+
+ Ô£ô tests/WordCounter.test.js > WordCounter > counts exactly 5 words for "This is - a self-explained example" (excludes the isolated symbol) 6ms
+ Ô£ô tests/WordCounter.test.js > WordCounter > counts words separated by multiple whitespace characters (tabs, newlines) 1ms
+ Ô£ô tests/WordCounter.test.js > WordCounter > counts hyphenated compound words as a single word 1ms
+ Ô£ô tests/WordCounter.test.js > WordCounter > counts words containing numbers 0ms
+ Ô£ô tests/WordCounter.test.js > WordCounter > excludes isolated symbols and punctuation from the count 0ms
+ Ô£ô tests/WordCounter.test.js > WordCounter > returns 0 for an empty or whitespace-only string 0ms
+ Ô£ô tests/WordCounter.test.js > WordCounter > returns 0 for a string made of isolated symbols only 0ms
+ Ô£ô tests/WordCounter.test.js > WordCounter > returns 0 for null or undefined input 0ms
+ Ô£ô tests/WordCounter.test.js > WordCounter > trims leading and trailing whitespace before counting 0ms
+ Ô£ô tests/FilterStrategies.test.js > MoreThanFiveWordsStrategy > exposes its filter identifier 2ms
+ Ô£ô tests/FilterStrategies.test.js > MoreThanFiveWordsStrategy > keeps only entries whose title has more than 5 words 2ms
+ Ô£ô tests/FilterStrategies.test.js > MoreThanFiveWordsStrategy > sorts results by comments in descending order 0ms
+ Ô£ô tests/FilterStrategies.test.js > MoreThanFiveWordsStrategy > returns an empty array when no entry matches 0ms
+ Ô£ô tests/FilterStrategies.test.js > MoreThanFiveWordsStrategy > does not mutate the original entries array 0ms
+ Ô£ô tests/FilterStrategies.test.js > LessOrEqualFiveWordsStrategy > exposes its filter identifier 0ms
+ Ô£ô tests/FilterStrategies.test.js > LessOrEqualFiveWordsStrategy > keeps only entries whose title has 5 words or fewer 0ms
+ Ô£ô tests/FilterStrategies.test.js > LessOrEqualFiveWordsStrategy > includes the boundary case of exactly 5 words 1ms
+ Ô£ô tests/FilterStrategies.test.js > LessOrEqualFiveWordsStrategy > sorts results by points in descending order 0ms
+ Ô£ô tests/FilterStrategies.test.js > LessOrEqualFiveWordsStrategy > returns an empty array when no entry matches 0ms
+ Ô£ô tests/FilterStrategies.test.js > LessOrEqualFiveWordsStrategy > does not mutate the original entries array 0ms
+ Ô£ô tests/FilterStrategies.test.js > FilterStrategy contract (LSP) > allows any strategy to be substituted through the common abstraction 0ms
+ Ô£ô tests/HackerNewsScraper.test.js > HackerNewsScraper > parse > returns exactly 30 entries when the HTML contains 32 athing rows 66ms
+ Ô£ô tests/HackerNewsScraper.test.js > HackerNewsScraper > parse > assigns sequential ordinal numbers from 1 to 30 26ms
+ Ô£ô tests/HackerNewsScraper.test.js > HackerNewsScraper > parse > parses title, points and comments from a typical entry 2ms
+ Ô£ô tests/HackerNewsScraper.test.js > HackerNewsScraper > parse > returns each entry with exactly number, title, points and comments 4ms
+ Ô£ô tests/HackerNewsScraper.test.js > HackerNewsScraper > parse > decodes HTML entities in titles 2ms
+ Ô£ô tests/HackerNewsScraper.test.js > HackerNewsScraper > parse > defaults points to 0 when the score is missing 11ms
+ Ô£ô tests/HackerNewsScraper.test.js > HackerNewsScraper > parse > defaults comments to 0 when the link text is "discuss" 4ms
+ Ô£ô tests/HackerNewsScraper.test.js > HackerNewsScraper > parse > defaults comments to 0 when there is no comments link 4ms
+ Ô£ô tests/HackerNewsScraper.test.js > HackerNewsScraper > parse > parses the singular form "1 comment" 4ms
+ Ô£ô tests/HackerNewsScraper.test.js > HackerNewsScraper > parse > ignores age and hide links when parsing comments 4ms
+ Ô£ô tests/HackerNewsScraper.test.js > HackerNewsScraper > parse > returns an empty array for empty HTML 1ms
+ Ô£ô tests/HackerNewsScraper.test.js > HackerNewsScraper > scrape > fetches the default Hacker News URL and parses the entries 15ms
+ Ô£ô tests/HackerNewsScraper.test.js > HackerNewsScraper > scrape > scrapes a custom url when one is provided 5ms
+ Ô£ô tests/HackerNewsScraper.test.js > HackerNewsScraper > scrape > throws an error when the response is not ok 4ms
+
+ Test Files  3 passed (3)
+      Tests  35 passed (35)
+   Start at  10:11:31
+   Duration  6.36s (import 92%, transform 5%, tests 3%, worker 1%)
+
+
+
+--- Smoke test contra https://news.ycombinator.com/ (sitio real) ---
+Total entries: 30
+[
+  {
+    "number": 1,
+    "title": "Claude Code reads AGENTS.md only when telemetry is on",
+    "points": 315,
+    "comments": 149
+  },
+  {
+    "number": 2,
+    "title": "I Don't Want the Details",
+    "points": 126,
+    "comments": 81
+  },
+  {
+    "number": 3,
+    "title": "Stripe built its internal AI platform",
+    "points": 33,
+    "comments": 22
+  },
+  {
+    "number": 4,
+    "title": "Jev in 25 Lines of Python",
+    "points": 427,
+    "comments": 133
+  },
+  {
+    "number": 5,
+    "title": "Z80 REPL",
+    "points": 81,
+    "comments": 10
+  }
+]
+
