@@ -327,3 +327,51 @@ getSystemConfig after update -> { cron_enabled: true, cron_expression: '0 */1 * 
    Duration  2.45s (tests 82%, import 14%, transform 3%)
 
 
+
+step 3 - Scrape and save test
+
+ RUN  v5.0.1 C:/Users/SUPERTRONICA/Documents/Proyectos/scropcombinator/backend
+
+stdout | tests/ScrapeAndSave.integration.test.js > Scraping and save to Firebase - real flow > manual: scrapes real entries, saves them and audits reason "(manual)" with real execution time
+MANUAL flow -> {
+  entriesCount: 30,
+  scrapeTimeMs: 2130,
+  saveTimeMs: 867,
+  executionTimeMs: 2997,
+  docId: 'latest',
+  logId: 'tiD2ClzZbFS6OSe2KMv3',
+  log: {
+    timestamp: '2026-09-23T22:46:17.529Z',
+    filter_applied: 'Scraping and save entries (manual)',
+    results_count: 30,
+    execution_type: 'MANUAL',
+    execution_time_ms: 2997
+  }
+}
+
+ Ô£ô tests/ScrapeAndSave.integration.test.js > Scraping and save to Firebase - real flow > manual: scrapes real entries, saves them and audits reason "(manual)" with real execution time 3180ms
+stdout | tests/ScrapeAndSave.integration.test.js > Scraping and save to Firebase - real flow > scheduled: scrapes real entries, saves them and audits reason "(each 2 h)" with real execution time
+SCHEDULED flow -> {
+  entriesCount: 30,
+  scrapeTimeMs: 511,
+  saveTimeMs: 215,
+  executionTimeMs: 726,
+  docId: 'latest',
+  logId: 'oq1mIOMf6fFAsMCyuujN',
+  log: {
+    timestamp: '2026-09-23T22:46:18.436Z',
+    filter_applied: 'Scraping and save entries (each 2 h)',
+    results_count: 30,
+    execution_type: 'SCHEDULED',
+    execution_time_ms: 726
+  }
+}
+
+ Ô£ô tests/ScrapeAndSave.integration.test.js > Scraping and save to Firebase - real flow > scheduled: scrapes real entries, saves them and audits reason "(each 2 h)" with real execution time 948ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  17:46:13
+   Duration  5.13s (tests 84%, import 14%, transform 2%)
+
+
