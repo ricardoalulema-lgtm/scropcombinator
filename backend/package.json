@@ -1,0 +1,14 @@
+{
+  "name": "hacker-news-scraper-backend",
+  "version": "0.1.0",
+  "description": "Backend serverless para Hacker News Scraper (Clean Architecture)",
+  "type": "module",
+  "main": "src/worker.js",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.1"
+  }
+}
