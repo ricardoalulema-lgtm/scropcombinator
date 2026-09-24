@@ -260,25 +260,49 @@ Dashboard alternative: **Workers & Pages** → Worker → **Settings** → **Var
 
 Keep frontend and Worker keys in sync: after rotating `API_KEY`, rebuild frontend with matching `VITE_API_KEY` and republish.
 
-### 3. Cron triggers (scheduled scrapes)
+### 3. Cron triggers (scheduled scrapes) — simple steps
 
-Defined in `backend/wrangler.toml`:
+The Worker can scrape Hacker News **automatically every 2 hours**. You only need these actions:
+
+#### Step A — The schedule is already in the project (no extra config)
+
+In `backend/wrangler.toml`:
 
 ```toml
 [triggers]
 crons = ["0 */2 * * *"]
 ```
 
-Crons ship with `npx wrangler deploy` (UTC). Confirm in **Workers & Pages → Worker → Settings → Triggers**.
+`0 */2 * * *` means: **run at minute 0 of every 2nd hour (UTC)** — e.g. 00:00, 02:00, 04:00…
 
-Runtime gate lives in Firestore `system_config/global`:
+You do **not** install the cron separately. It is published when you deploy:
 
-| Field | Effect |
+```bash
+cd backend
+npx wrangler deploy
+```
+
+#### Step B — Confirm Cloudflare received the schedule
+
+1. Open the [Cloudflare Dashboard](https://dash.cloudflare.com).
+2. Go to **Workers & Pages** → select **`hacker-news-scraper`**.
+3. Open **Settings** → **Triggers**.
+4. Under **Cron Triggers** you should see: `0 */2 * * *` (Production).
+
+If it is missing, run `npx wrangler deploy` again from `backend/`.
+
+#### Step C — Turn the job ON inside the app
+
+Deploying the cron only registers the **timer**. The app also checks a switch in Firestore (`system_config`):
+
+| Value | What happens every 2 hours |
 |---|---|
-| `cron_enabled: true` | Scheduled handler scrapes, saves `entries_cache`, audits `SCHEDULED` |
-| `cron_enabled: false` | Handler skips |
+| `cron_enabled: true` | Scrape HN → save cache → write audit log (`SCHEDULED`) |
+| `cron_enabled: false` | Job wakes up and **does nothing** (skip) |
 
-Toggle from the UI (**Execution** modal) or:
+**Easiest way:** open the app → menu **Execution** → choose **Scheduled** → **Save**.
+
+**Or via API:**
 
 ```bash
 curl -X PUT "https://hacker-news-scraper.<account>.workers.dev/api/config" \
@@ -287,17 +311,31 @@ curl -X PUT "https://hacker-news-scraper.<account>.workers.dev/api/config" \
   -d '{"cron_enabled": true, "cron_expression": "0 */2 * * *"}'
 ```
 
-Local cron (does **not** auto-fire under `wrangler dev`):
+#### Step D — Verify it is running
+
+1. Wait for the next even hour (UTC), **or** use Dashboard → **Triggers** → **Test** on the cron.
+2. In the app open **Logs**: a new row with `execution_type: SCHEDULED` and reason like `Scraping and save entries (each 2 h)`.
+3. Live logs from your machine:
+
+```bash
+cd backend
+npx wrangler tail
+```
+
+#### Local testing note
+
+`npx wrangler dev` does **not** fire the cron by itself. Trigger it manually:
 
 ```bash
 curl "http://127.0.0.1:8787/cdn-cgi/local/scheduled"
 ```
 
-Live production logs:
-
-```bash
-npx wrangler tail
-```
+| If you want… | Do this |
+|---|---|
+| Different frequency (e.g. every hour) | Edit `crons` in `wrangler.toml` → `npx wrangler deploy` → set `cron_expression` to `0 */1 * * *` in UI/API |
+| Pause automatic runs | UI **Execution** → Manual → Save (`cron_enabled: false`) |
+| Resume automatic runs | UI **Execution** → Scheduled → Save (`cron_enabled: true`) |
+| Change when it runs | Cron is **UTC** only on Cloudflare |
 
 ### 4. Deploy the frontend (Cloudflare Pages)
 
@@ -323,8 +361,8 @@ CORS: the Worker returns `access-control-allow-origin: *`, so Pages can call the
 
 - [ ] `npx wrangler deploy` succeeded; Worker URL recorded
 - [ ] `npx wrangler secret put API_KEY` (strong key)
-- [ ] Dashboard → Triggers shows `0 */2 * * *`
-- [ ] `system_config.cron_enabled = true` if scheduled runs are desired
+- [ ] Dashboard → Triggers shows cron `0 */2 * * *`
+- [ ] UI **Execution** → Scheduled saved (`cron_enabled: true`) if you want automatic scrapes
 - [ ] Frontend built with production `VITE_API_BASE_URL` + matching `VITE_API_KEY`
 - [ ] UI loads; unauthenticated API call returns 401; authenticated health returns `"status": "ok"`
 
