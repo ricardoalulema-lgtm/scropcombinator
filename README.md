@@ -440,11 +440,11 @@ Historical results per step are recorded in `testresults.me`.
 | **Static API key on every HTTP request** | Lightweight auth so arbitrary clients cannot GET/PUT the API; header `x-api-key` or `Authorization: Bearer`. OPTIONS (CORS preflight) is exempt. Key lives in `wrangler.toml [vars]` locally; use `wrangler secret put API_KEY` in production. |
 | **Realtime via `onSnapshot`** | Audit logs and `entries_cache` update without polling; matches the architecture diagram. |
 | **`NO_FILTER` default in UI** | Users see results immediately from cache; filters are opt-in. |
-| **Firestore-driven schedule (hourly base wake)** | Cloudflare only accepts fixed cron expressions, so `wrangler.toml` wakes the Worker every hour (`0 * * * *`) and Firestore decides the actual frequency: `handleScheduled` compares `frequency_hours` against `last_run_hour` (hour key without minutes) and skips with `frequency_not_reached` until N hours elapse; `PUT /api/config` anchors `last_run_hour` on every save. Frequency is chosen in the UI and never requires a redeploy, and the audit label `each N h` is derived from the stored config (`utils/schedule.js`) so logs always match the user's choice. **Nota:** se usa esta función para dar una mejor experiencia al usuario. |
+| **Firestore-driven schedule (hourly base wake)** | Cloudflare only accepts fixed cron expressions, so `wrangler.toml` wakes the Worker every hour (`0 * * * *`) and Firestore decides the actual frequency: `handleScheduled` compares `frequency_hours` against `last_run_hour` (hour key without minutes) and skips with `frequency_not_reached` until N hours elapse; `PUT /api/config` anchors `last_run_hour` on every save. Frequency is chosen in the UI and never requires a redeploy, and the audit label `each N h` is derived from the stored config (`utils/schedule.js`) so logs always match the user's choice. **Note:** This feature is used to provide a better user experience |
 | **Vitest** | Same toolchain as Vite frontend; fast, ESM-native, good mocking. |
 | **Monorepo `backend/` + `frontend/`** | Clear separation of deployables while sharing one repository and commit history. |
 
-### UI functional improvements (beyond the original requirements)
+### UI functional improvements
 
 Enhancements added during the UI refinement phase that are **not** part of the original spec in `Requirements.me`:
 
