@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import TopBar from './components/TopBar.jsx';
 import Modal from './components/Modal.jsx';
 import FilterControls from './components/FilterControls.jsx';
 import ResultsTable from './components/ResultsTable.jsx';
 import AuditLogsTable from './components/AuditLogsTable.jsx';
 import ScheduleConfig from './components/ScheduleConfig.jsx';
-import { fetchEntries, scrapeNow, getSystemConfig, updateSystemConfig } from './services/api.js';
+import { fetchEntries, scrapeNow, getSystemConfig, updateSystemConfig, saveUsageLog } from './services/api.js';
 import { subscribeUsageLogs, subscribeEntriesCache } from './services/firebase.js';
+import { applyViewOptions, countWords } from './utils/entriesView.js';
 import './App.css';
 
 const hoursToCron = (hours) => `0 */${hours} * * *`;
@@ -26,9 +27,27 @@ export default function App() {
   const [notice, setNotice] = useState(null);
   const [error, setError] = useState(null);
   const [openPanel, setOpenPanel] = useState(null);
+  const [textQuery, setTextQuery] = useState('');
+  const [sortField, setSortField] = useState(null);
+  const [wordCount, setWordCount] = useState(null);
 
   const displayedResults = results ?? cachedEntries;
   const resultsSource = results ? 'api' : cachedEntries.length > 0 ? 'cache' : 'empty';
+
+  const wordCountOptions = useMemo(() => {
+    const counts = new Set(displayedResults.map((entry) => countWords(entry.title)));
+    return [...counts].sort((a, b) => a - b);
+  }, [displayedResults]);
+
+  const viewResults = useMemo(
+    () =>
+      applyViewOptions(displayedResults, {
+        text: textQuery,
+        wordCount,
+        sortField
+      }),
+    [displayedResults, textQuery, wordCount, sortField]
+  );
 
   useEffect(() => {
     const unsubscribeLogs = subscribeUsageLogs(setLogs, (err) => setLogsError(err.message));
@@ -152,6 +171,59 @@ export default function App() {
     }
   };
 
+  const logViewAction = async (executionType, filterApplied, resultsCount, executionTimeMs) => {
+    try {
+      await saveUsageLog({
+        timestamp: new Date().toISOString(),
+        filter_applied: filterApplied,
+        results_count: resultsCount,
+        execution_type: executionType,
+        execution_time_ms: executionTimeMs
+      });
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleSortChange = (field) => {
+    const started = performance.now();
+    const nextSort = sortField === field ? null : field;
+    setSortField(nextSort);
+
+    const nextCount = applyViewOptions(displayedResults, {
+      text: textQuery,
+      wordCount,
+      sortField: nextSort
+    }).length;
+
+    const elapsed = Math.round(performance.now() - started);
+    const label = field === 'points' ? 'Order by points' : 'Order by comments';
+    void logViewAction('ORDER', label, nextCount, elapsed);
+  };
+
+  const handleWordCountChange = (nextCount) => {
+    if (nextCount === null) {
+      setWordCount(null);
+      return;
+    }
+
+    const started = performance.now();
+    setWordCount(nextCount);
+
+    const nextList = applyViewOptions(displayedResults, {
+      text: textQuery,
+      wordCount: nextCount,
+      sortField
+    });
+    const elapsed = Math.round(performance.now() - started);
+
+    void logViewAction('SEARCH', `filter by ${nextCount} words`, nextList.length, elapsed);
+  };
+
+  const handleTextQueryChange = (value) => {
+    setTextQuery(value);
+  };
+
   return (
     <div className="app-shell">
       <TopBar
@@ -173,7 +245,18 @@ export default function App() {
           loading={loading}
         />
 
-        <ResultsTable results={displayedResults} meta={meta} source={resultsSource} />
+        <ResultsTable
+          results={viewResults}
+          meta={meta}
+          source={resultsSource}
+          textQuery={textQuery}
+          onTextQueryChange={handleTextQueryChange}
+          sortField={sortField}
+          onSortChange={handleSortChange}
+          wordCount={wordCount}
+          onWordCountChange={handleWordCountChange}
+          wordCountOptions={wordCountOptions}
+        />
       </main>
 
       <Modal open={openPanel === 'logs'} title="Audit logs" onClose={() => setOpenPanel(null)}>

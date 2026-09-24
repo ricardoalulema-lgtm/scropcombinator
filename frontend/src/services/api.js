@@ -34,4 +34,10 @@ export const updateSystemConfig = (payload) =>
     body: JSON.stringify(payload)
   });
 
+export const saveUsageLog = (payload) =>
+  request('/api/logs', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+
 export { API_BASE_URL };

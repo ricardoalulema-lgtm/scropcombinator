@@ -11,7 +11,7 @@ const GLOBAL_CONFIG_DOC = 'global';
 
 // Execution types allowed for logging.
 // This prevents storing inconsistent or misspelled data.
-const VALID_EXECUTION_TYPES = ['MANUAL', 'SCHEDULED'];
+const VALID_EXECUTION_TYPES = ['MANUAL', 'SCHEDULED', 'ORDER', 'SEARCH'];
 
 // Default system configuration.
 // If no configuration document exists in Firestore, this will be used.

@@ -40,9 +40,10 @@ Status legend: **[x]** completed · **[~]** completed with observation · **[ ]*
 - [x] Collection `usage_logs` with `timestamp` (ISO 8601)
 - [x] `filter_applied`
 - [x] `results_count`
-- [x] `execution_type`: `"MANUAL"` | `"SCHEDULED"` (validated; invalid values rejected)
+- [x] `execution_type`: `"MANUAL"` | `"SCHEDULED"` | `"ORDER"` | `"SEARCH"` (validated; invalid values rejected)
 - [x] `execution_time_ms`
-- [~] **Observation:** save reasons also include human-readable strings for scrape-only runs (`Scraping and save entries (manual)` / `(each N h)`)
+- [~] **Observation:** save reasons also include human-readable strings for scrape-only runs (`Scraping and save entries (manual)` / `(each 2 h)`)
+- [~] **Observation:** UI actions audit via `POST /api/logs` with `ORDER` (`Order by points` / `Order by comments`) and `SEARCH` (`filter by [n] words`)
 
 ---
 
@@ -116,7 +117,10 @@ Status legend: **[x]** completed · **[~]** completed with observation · **[ ]*
 - [x] Execution settings also opened from the **top menu** (modal)
 - [x] Everything accessible in **one place** (single screen + modals)
 - [x] **Results list is the main block** of the application (primary layout focus)
-- [x] `oxlint` 0 errors · `vite build` success
+- [x] Results text filter (case-insensitive on title; no audit log — client-side only)
+- [x] Sort by **Points** / **Comments** via clickable headers → log `type: ORDER`
+- [x] Exact word-count choice next to **Title** → log `type: SEARCH` (`filter by [n] words`)
+- [x] `oxlint` 0 errors · `vite build` success · frontend Vitest suite (`entriesView`)
 
 ### Step 7 — Final documentation & version control
 
@@ -134,6 +138,7 @@ Status legend: **[x]** completed · **[~]** completed with observation · **[ ]*
 - [~] **Dual persistence strategy** — SDK repository (Node/tests) + REST repository (Cloudflare Workers) behind the same interface.
 - [~] **`NO_FILTER` endpoint & UI option** — unfiltered view by default; audits as `filter_applied: "NO_FILTER"`.
 - [~] **Phase 6 UI redesign** — `TopBar` + `Modal` + chip filters + results-first layout (implemented with AI assistance as specified in Step 6).
+- [~] **Results table client view controls** — text search, header sort, word-count filter; `ORDER`/`SEARCH` audit logs via `POST /api/logs` (see `frontend/src/utils/entriesView.js`).
 - [ ] Production deployment (`wrangler deploy`, `wrangler secret put API_KEY`, frontend production URL) — not required for local evaluation; pending if needed.
 
 ---
@@ -142,9 +147,9 @@ Status legend: **[x]** completed · **[~]** completed with observation · **[ ]*
 
 | Evidence file | Content |
 |---|---|
-| `testresults.me` | Steps 1–5 (+ apiKey run, frontend lint/build) recorded per phase |
+| `testresults.me` | Steps 1–6 (+ apiKey run, frontend lint/build, entries view filters/order) recorded per phase |
 | `npm test` (backend) | Full Vitest suite green at time of last commit |
-| `npm run lint` / `npm run build` (frontend) | 0 lint errors; successful production build |
+| `npm run lint` / `npm run build` / `npm test` (frontend) | 0 lint errors; successful production build; `entriesView` suite green |
 
 ---
 

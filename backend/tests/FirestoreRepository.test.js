@@ -113,6 +113,30 @@ describe('FirestoreRepository', () => {
       expect(log.execution_type).toBe('SCHEDULED');
     });
 
+    it('accepts execution_type ORDER', async () => {
+      await repository.saveUsageLog({
+        ...validLog,
+        execution_type: 'ORDER',
+        filter_applied: 'Order by points'
+      });
+
+      const [, log] = setDoc.mock.calls[0];
+      expect(log.execution_type).toBe('ORDER');
+      expect(log.filter_applied).toBe('Order by points');
+    });
+
+    it('accepts execution_type SEARCH', async () => {
+      await repository.saveUsageLog({
+        ...validLog,
+        execution_type: 'SEARCH',
+        filter_applied: 'filter by 5 words'
+      });
+
+      const [, log] = setDoc.mock.calls[0];
+      expect(log.execution_type).toBe('SEARCH');
+      expect(log.filter_applied).toBe('filter by 5 words');
+    });
+
     it('rejects an invalid execution_type', async () => {
       await expect(
         repository.saveUsageLog({ ...validLog, execution_type: 'AUTO' })

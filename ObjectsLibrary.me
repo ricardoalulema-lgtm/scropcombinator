@@ -784,27 +784,38 @@ Renders chips (`role="radio"`) and action buttons; no internal handlers beyond p
 ### Relational diagram
 
 ```
-App.displayedResults ──► ResultsTable
-   (results ?? cachedEntries)
+App.viewResults ──► ResultsTable
+   applyViewOptions(text, wordCount, sortField)
 App.meta / resultsSource ──► header stats + source label
+ResultsTable ──► onTextQueryChange / onSortChange / onWordCountChange
 ```
 
 | Related object | Relationship |
 |---|---|
-| `App` | Sole data source (API results or cache). |
+| `App` | Receives filtered/sorted rows + view callbacks. |
+| `entriesView.js` | Pure helpers used by `App` to compute `viewResults`. |
 | Entry objects | Rows: `number`, `title`, `points`, `comments`. |
 
 ### Description & characteristics
 
 **Main UI block**: large panel, entry/ms stats, sticky table header, scrollable body, empty state guidance.
 
+Client view controls:
+- **Text search** input filters titles (no audit log).
+- **Points / Comments** headers are clickable → `ORDER` logs.
+- **Words** `<select>` next to Title filters by exact title word count → `SEARCH` logs.
+
 ### Props
 
 | Prop | Description |
 |---|---|
-| `results` | Array of entries to display. |
+| `results` | Array of entries to display (already view-filtered/sorted). |
 | `meta` | Optional API meta (`filter`, `results_count`, `execution_time_ms`). |
 | `source` | `'api' \| 'cache' \| 'empty'` for label. |
+| `textQuery` / `onTextQueryChange` | Controlled text filter. |
+| `sortField` / `onSortChange` | `'points' \| 'comments' \| null` and header click handler. |
+| `wordCount` / `onWordCountChange` | Exact word count or `null`. |
+| `wordCountOptions` | Distinct word counts present in the source list. |
 
 ### Constructor
 
@@ -817,6 +828,23 @@ None beyond render.
 ### Related objects list
 
 - `App`
+- `entriesView` (`countWords`, `filterByText`, `filterByWordCount`, `sortByField`, `applyViewOptions`)
+
+---
+
+## 15b. `entriesView` utilities
+
+**File:** `frontend/src/utils/entriesView.js`
+
+| Export | Description |
+|---|---|
+| `countWords(title)` | Same rule as backend `WordCounter` (whitespace split; isolated symbols excluded). |
+| `filterByText(entries, text)` | Case-insensitive substring filter on `title`. |
+| `filterByWordCount(entries, n)` | Exact word-count filter; ignores `null`/empty. |
+| `sortByField(entries, field)` | Non-mutating descending sort by `points` or `comments`. |
+| `applyViewOptions(entries, opts)` | Combines text + word count + optional sort. |
+
+Tested in `frontend/src/utils/entriesView.test.js` (Vitest).
 - Entry plain objects
 
 ---

@@ -80,6 +80,27 @@ describe('FirestoreRestRepository', () => {
       expect(fetcher).not.toHaveBeenCalled();
     });
 
+    it('accepts execution_type ORDER and SEARCH', async () => {
+      await repository.saveUsageLog({
+        filter_applied: 'Order by points',
+        results_count: 3,
+        execution_type: 'ORDER',
+        execution_time_ms: 1
+      });
+      await repository.saveUsageLog({
+        filter_applied: 'filter by 5 words',
+        results_count: 2,
+        execution_type: 'SEARCH',
+        execution_time_ms: 1
+      });
+
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      const first = JSON.parse(fetcher.mock.calls[0][1].body);
+      const second = JSON.parse(fetcher.mock.calls[1][1].body);
+      expect(first.fields.execution_type).toEqual({ stringValue: 'ORDER' });
+      expect(second.fields.execution_type).toEqual({ stringValue: 'SEARCH' });
+    });
+
     it('rejects a non-object payload', async () => {
       await expect(repository.saveUsageLog(null)).rejects.toThrow(
         'logData must be an object'

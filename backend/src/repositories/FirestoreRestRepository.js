@@ -7,7 +7,7 @@ const SYSTEM_CONFIG_COLLECTION = 'system_config';
 const LATEST_CACHE_DOC = 'latest';
 const GLOBAL_CONFIG_DOC = 'global';
 
-const VALID_EXECUTION_TYPES = ['MANUAL', 'SCHEDULED'];
+const VALID_EXECUTION_TYPES = ['MANUAL', 'SCHEDULED', 'ORDER', 'SEARCH'];
 
 export const DEFAULT_SYSTEM_CONFIG = {
   cron_enabled: false,

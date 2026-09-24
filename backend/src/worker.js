@@ -190,6 +190,30 @@ const handleUpdateConfig = async (request, services) => {
   return json(config);
 };
 
+const handleUsageLog = async (request, services) => {
+  let payload;
+
+  try {
+    payload = await request.json();
+  } catch {
+    return json({ error: 'Request body must be valid JSON' }, 400);
+  }
+
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return json({ error: 'Request body must be a JSON object' }, 400);
+  }
+
+  const logId = await services.repository.saveUsageLog({
+    timestamp: payload.timestamp ?? new Date().toISOString(),
+    filter_applied: payload.filter_applied,
+    results_count: payload.results_count,
+    execution_type: payload.execution_type,
+    execution_time_ms: payload.execution_time_ms
+  });
+
+  return json({ log_id: logId, filter_applied: payload.filter_applied });
+};
+
 // Main router for handling all HTTP requests to the worker.
 export const handleFetch = async (request, services) => {
   try {
@@ -226,7 +250,8 @@ export const handleFetch = async (request, services) => {
           'GET /api/entries?filter=NO_FILTER | MORE_THAN_5_WORDS_BY_COMMENTS | LESS_OR_EQUAL_5_WORDS_BY_POINTS',
           'GET /api/scrape',
           'GET /api/config',
-          'PUT /api/config'
+          'PUT /api/config',
+          'POST /api/logs'
         ]
       });
     }
@@ -250,6 +275,11 @@ export const handleFetch = async (request, services) => {
       if (request.method === 'PUT' || request.method === 'POST') {
         return await handleUpdateConfig(request, services);
       }
+    }
+
+    // Audit log route for UI actions (ORDER / SEARCH).
+    if (request.method === 'POST' && pathname === '/api/logs') {
+      return await handleUsageLog(request, services);
     }
 
     // Route not found.

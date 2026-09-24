@@ -335,6 +335,98 @@ describe('worker - fetch handler', () => {
     expect(response.status).toBe(500);
     expect(body).toEqual({ error: 'HN is down' });
   });
+
+  it('saves an ORDER usage log via POST /api/logs', async () => {
+    const services = buildServices();
+    const response = await handleFetch(
+      new Request('http://localhost/api/logs', {
+        method: 'POST',
+        headers: authHeaders({ 'content-type': 'application/json' }),
+        body: JSON.stringify({
+          timestamp: '2026-09-24T10:00:00.000Z',
+          filter_applied: 'Order by points',
+          results_count: 3,
+          execution_type: 'ORDER',
+          execution_time_ms: 1
+        })
+      }),
+      services
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({ log_id: 'log-1', filter_applied: 'Order by points' });
+    expect(services.repository.saveUsageLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timestamp: '2026-09-24T10:00:00.000Z',
+        filter_applied: 'Order by points',
+        results_count: 3,
+        execution_type: 'ORDER',
+        execution_time_ms: 1
+      })
+    );
+  });
+
+  it('saves a SEARCH usage log via POST /api/logs', async () => {
+    const services = buildServices();
+    const response = await handleFetch(
+      new Request('http://localhost/api/logs', {
+        method: 'POST',
+        headers: authHeaders({ 'content-type': 'application/json' }),
+        body: JSON.stringify({
+          filter_applied: 'filter by 5 words',
+          results_count: 2,
+          execution_type: 'SEARCH',
+          execution_time_ms: 0
+        })
+      }),
+      services
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(services.repository.saveUsageLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filter_applied: 'filter by 5 words',
+        results_count: 2,
+        execution_type: 'SEARCH',
+        timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/)
+      })
+    );
+    expect(body.log_id).toBe('log-1');
+  });
+
+  it('rejects POST /api/logs with invalid JSON', async () => {
+    const services = buildServices();
+    const response = await handleFetch(
+      new Request('http://localhost/api/logs', {
+        method: 'POST',
+        headers: authHeaders({ 'content-type': 'application/json' }),
+        body: '{not-json'
+      }),
+      services
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toContain('valid JSON');
+    expect(services.repository.saveUsageLog).not.toHaveBeenCalled();
+  });
+
+  it('requires the API key on POST /api/logs', async () => {
+    const services = buildServices();
+    const response = await handleFetch(
+      new Request('http://localhost/api/logs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ execution_type: 'ORDER', filter_applied: 'Order by points' })
+      }),
+      services
+    );
+
+    expect(response.status).toBe(401);
+    expect(services.repository.saveUsageLog).not.toHaveBeenCalled();
+  });
 });
 
 describe('worker - scheduled handler', () => {

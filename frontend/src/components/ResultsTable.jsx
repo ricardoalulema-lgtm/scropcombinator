@@ -1,9 +1,28 @@
-export const ResultsTable = ({ results, meta, source }) => {
+export const ResultsTable = ({
+  results,
+  meta,
+  source,
+  textQuery,
+  onTextQueryChange,
+  sortField,
+  onSortChange,
+  wordCount,
+  onWordCountChange,
+  wordCountOptions
+}) => {
   const sourceLabel = meta
     ? meta.filter
     : source === 'cache'
       ? 'No filter · cached (realtime)'
       : 'Waiting for data';
+
+  const sortIndicator = (field) => {
+    if (sortField !== field) return '';
+    return ' ▼';
+  };
+
+  const headerClass = (field) =>
+    `th-sortable${sortField === field ? ' th-sortable-active' : ''}`;
 
   return (
     <section className="results panel-main" aria-label="Results">
@@ -13,6 +32,16 @@ export const ResultsTable = ({ results, meta, source }) => {
           <p className="meta">{sourceLabel}</p>
         </div>
         <div className="results-stats">
+          <label className="results-text-filter">
+            <span className="sr-only">Filter by text</span>
+            <input
+              type="search"
+              value={textQuery}
+              onChange={(event) => onTextQueryChange(event.target.value)}
+              placeholder="Filter by text…"
+              aria-label="Filter entries by text"
+            />
+          </label>
           <span className="stat">
             <strong>{results.length}</strong>
             entries
@@ -37,9 +66,44 @@ export const ResultsTable = ({ results, meta, source }) => {
             <thead>
               <tr>
                 <th className="col-number">#</th>
-                <th>Title</th>
-                <th className="col-points">Points</th>
-                <th className="col-comments">Comments</th>
+                <th className="col-title">
+                  <span className="title-header">
+                    <span>Title</span>
+                    <label className="word-count-label">
+                      <span className="sr-only">Words</span>
+                      <select
+                        value={wordCount ?? ''}
+                        onChange={(event) =>
+                          onWordCountChange(event.target.value === '' ? null : Number(event.target.value))
+                        }
+                        aria-label="Filter by exact word count in title"
+                      >
+                        <option value="">Words</option>
+                        {wordCountOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </span>
+                </th>
+                <th
+                  className={`col-points ${headerClass('points')}`}
+                  scope="col"
+                  onClick={() => onSortChange('points')}
+                  title="Sort by points"
+                >
+                  Points{sortIndicator('points')}
+                </th>
+                <th
+                  className={`col-comments ${headerClass('comments')}`}
+                  scope="col"
+                  onClick={() => onSortChange('comments')}
+                  title="Sort by comments"
+                >
+                  Comments{sortIndicator('comments')}
+                </th>
               </tr>
             </thead>
             <tbody>

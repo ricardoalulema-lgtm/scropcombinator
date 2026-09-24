@@ -1,4 +1,4 @@
-﻿
+
  Step 1
  RUN  v5.0.1 C:/Users/SUPERTRONICA/Documents/Proyectos/scropcombinator/backend
 
@@ -510,4 +510,298 @@ En línea: 1 Carácter: 1
 - Use build.rolldownOptions.output.codeSplitting to improve chunking: 
 https://rolldown.rs/reference/OutputOptions.codeSplitting
 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+
+
+step 2 - test real web
+[
+  {
+    "number": 1,
+    "title": "F-Droid 2.0: A New Chapter for Android Freedom",
+    "points": 122,
+    "comments": 35
+  },
+  {
+    "number": 2,
+    "title": "Dynamic Abliteration: Non-Destructive Refusal Suppression via Engram Steering",
+    "points": 66,
+    "comments": 17
+  },
+  {
+    "number": 3,
+    "title": "Enjoy Every Sandwich",
+    "points": 104,
+    "comments": 43
+  },
+  {
+    "number": 4,
+    "title": "The science of Monkey Island: can grog dissolve a metal mug that fast?",
+    "points": 50,
+    "comments": 7
+  },
+  {
+    "number": 5,
+    "title": "Nokia Design Archive (2025)",
+    "points": 162,
+    "comments": 85
+  },
+  {
+    "number": 6,
+    "title": "Disney+ and Hulu raise prices by up to 13 percent after doubling profits",
+    "points": 55,
+    "comments": 33
+  },
+  {
+    "number": 7,
+    "title": "Linux support is coming to Snapdragon X2 Series",
+    "points": 554,
+    "comments": 232
+  },
+  {
+    "number": 8,
+    "title": "Ideas on modernizing the open-source desktop",
+    "points": 303,
+    "comments": 351
+  },
+  {
+    "number": 9,
+    "title": "Best LLM for every budget, updated daily",
+    "points": 111,
+    "comments": 63
+  },
+  {
+    "number": 10,
+    "title": "Japanese used bookstores see 5x sales surge as books are being bought by the ton",
+    "points": 40,
+    "comments": 17
+  },
+  {
+    "number": 11,
+    "title": "Claude discovers a novel enzyme system with CRISPR-like repeats",
+    "points": 740,
+    "comments": 740
+  },
+  {
+    "number": 12,
+    "title": "Tutoring company tells parents to save their money and 'use AI instead'",
+    "points": 28,
+    "comments": 28
+  },
+  {
+    "number": 13,
+    "title": "OpenAI agent hacked Australian government website, PM says",
+    "points": 236,
+    "comments": 162
+  },
+  {
+    "number": 14,
+    "title": "RAM: the forgotten history (2024)",
+    "points": 80,
+    "comments": 2
+  },
+  {
+    "number": 15,
+    "title": "ArXiv receives multiyear commitments to support it as an independent nonprofit",
+    "points": 268,
+    "comments": 31
+  },
+  {
+    "number": 16,
+    "title": "Two-Tier Encryption in the UK – Identical Apple Devices, Different Protection",
+    "points": 217,
+    "comments": 194
+  },
+  {
+    "number": 17,
+    "title": "What Is RLCD? The Secret Behind Jev",
+    "points": 18,
+    "comments": 1
+  },
+  {
+    "number": 18,
+    "title": "The newest ESP32 can run Linux and it's getting close to a Raspberry Pi",
+    "points": 138,
+    "comments": 55
+  },
+  {
+    "number": 19,
+    "title": "When the Debugger Lies",
+    "points": 40,
+    "comments": 14
+  },
+  {
+    "number": 20,
+    "title": "Coulomb's law remains tricky to test at home",
+    "points": 12,
+    "comments": 8
+  },
+  {
+    "number": 21,
+    "title": "VSCode's SSH Agent Is Bananas (2025)",
+    "points": 285,
+    "comments": 180
+  },
+  {
+    "number": 22,
+    "title": "WaveDigger: Dig into wireless signals to discover their physical locations",
+    "points": 3,
+    "comments": 0
+  },
+  {
+    "number": 23,
+    "title": "Contrastive Language Models",
+    "points": 132,
+    "comments": 37
+  },
+  {
+    "number": 24,
+    "title": "Meta takes down a critical video about meta AI Glasses after filming at Meta",
+    "points": 514,
+    "comments": 308
+  },
+  {
+    "number": 25,
+    "title": "The \"Windows XP Box\" (2003)",
+    "points": 203,
+    "comments": 42
+  },
+  {
+    "number": 26,
+    "title": "The Year of Internal Tools",
+    "points": 46,
+    "comments": 11
+  },
+  {
+    "number": 27,
+    "title": "Hackers influence ChatGPT and Gemini to direct users to scam centers",
+    "points": 83,
+    "comments": 26
+  },
+  {
+    "number": 28,
+    "title": "Fixing the Portobello Police Station Clock",
+    "points": 500,
+    "comments": 111
+  },
+  {
+    "number": 29,
+    "title": "Virtio-nvgpu: Near-native Nvidia GPU access inside a KVM guest",
+    "points": 139,
+    "comments": 56
+  },
+  {
+    "number": 30,
+    "title": "Owners mourn spoiled food after firmware update bricks Samsung smart fridges",
+    "points": 171,
+    "comments": 182
+  }
+]
+
+step 6 - entries table filters and order (frontend)
+
+ RUN  v3.2.7 C:/Users/SUPERTRONICA/Documents/Proyectos/scropcombinator/frontend
+
+ ✓ src/utils/entriesView.test.js > entriesView > countWords matches the backend rule for isolated symbols 3ms
+ ✓ src/utils/entriesView.test.js > entriesView > filterByText keeps only entries whose title contains the text (case-insensitive) 2ms
+ ✓ src/utils/entriesView.test.js > entriesView > filterByText returns all entries when the text is empty 0ms
+ ✓ src/utils/entriesView.test.js > entriesView > filterByWordCount keeps only entries with exactly N words 1ms
+ ✓ src/utils/entriesView.test.js > entriesView > filterByWordCount is ignored when no count is selected 0ms
+ ✓ src/utils/entriesView.test.js > entriesView > sortByField sorts by points descending without mutating the input 1ms
+ ✓ src/utils/entriesView.test.js > entriesView > sortByField sorts by comments descending 0ms
+ ✓ src/utils/entriesView.test.js > entriesView > applyViewOptions combines text filter, word count and sort 0ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  11:07:56
+   Duration  927ms (transform 54ms, setup 0ms, collect 55ms, tests 11ms, environment 0ms, prepare 251ms)
+
+step 6 - backend ORDER/SEARCH audit logs (worker + repositories)
+
+ RUN  v5.0.1 C:/Users/SUPERTRONICA/Documents/Proyectos/scropcombinator/backend
+
+ ✓ tests/FirestoreRepository.test.js > BaseRepository > throws when saveUsageLog is not implemented 7ms
+ ✓ tests/FirestoreRepository.test.js > BaseRepository > throws when saveEntries is not implemented 1ms
+ ✓ tests/FirestoreRepository.test.js > BaseRepository > throws when getSystemConfig is not implemented 1ms
+ ✓ tests/FirestoreRepository.test.js > BaseRepository > throws when updateSystemConfig is not implemented 1ms
+ ✓ tests/FirestoreRepository.test.js > FirestoreRepository > is a substitutable BaseRepository implementation (LSP/DIP) 1ms
+ ✓ tests/FirestoreRepository.test.js > FirestoreRepository > requires an injected database instance 1ms
+ ✓ tests/FirestoreRepository.test.js > FirestoreRepository > saveUsageLog > writes a document to the usage_logs collection with all audit fields 4ms
+ ✓ tests/FirestoreRepository.test.js > FirestoreRepository > saveUsageLog > generates an ISO 8601 timestamp when none is provided 1ms
+ ✓ tests/FirestoreRepository.test.js > FirestoreRepository > saveUsageLog > keeps the exact timestamp when one is provided 0ms
+ ✓ tests/FirestoreRepository.test.js > FirestoreRepository > saveUsageLog > accepts execution_type SCHEDULED 1ms
+ ✓ tests/FirestoreRepository.test.js > FirestoreRepository > saveUsageLog > accepts execution_type ORDER 0ms
+ ✓ tests/FirestoreRepository.test.js > FirestoreRepository > saveUsageLog > accepts execution_type SEARCH 0ms
+ ✓ tests/FirestoreRepository.test.js > FirestoreRepository > saveUsageLog > rejects an invalid execution_type 1ms
+ ✓ tests/FirestoreRepository.test.js > FirestoreRepository > saveUsageLog > rejects a non-object payload 1ms
+ ✓ tests/FirestoreRepository.test.js > FirestoreRepository > saveUsageLog > returns the created document id 0ms
+ ✓ tests/FirestoreRepository.test.js > FirestoreRepository > saveEntries > writes the entries array to entries_cache/latest with saved_at 1ms
+ ✓ tests/FirestoreRepository.test.js > FirestoreRepository > saveEntries > accepts an empty entries array 1ms
+ ✓ tests/FirestoreRepository.test.js > FirestoreRepository > saveEntries > rejects a non-array payload 1ms
+ ✓ tests/FirestoreRepository.test.js > FirestoreRepository > getSystemConfig > returns the stored configuration merged with defaults 1ms
+ ✓ tests/FirestoreRepository.test.js > FirestoreRepository > getSystemConfig > returns the default configuration when the document does not exist 1ms
+ ✓ tests/FirestoreRepository.test.js > FirestoreRepository > getSystemConfig > fills missing stored fields with defaults 0ms
+ ✓ tests/FirestoreRepository.test.js > FirestoreRepository > updateSystemConfig > merges the provided fields into system_config/global 1ms
+ ✓ tests/FirestoreRepository.test.js > FirestoreRepository > updateSystemConfig > returns the updated configuration merged with defaults 0ms
+ ✓ tests/FirestoreRepository.test.js > FirestoreRepository > updateSystemConfig > rejects a non-object payload 1ms
+ ✓ tests/FirestoreRestRepository.test.js > FirestoreRestRepository > is a substitutable BaseRepository implementation 5ms
+ ✓ tests/FirestoreRestRepository.test.js > FirestoreRestRepository > requires projectId and apiKey 3ms
+ ✓ tests/FirestoreRestRepository.test.js > FirestoreRestRepository > saveUsageLog > POSTs an encoded audit log to usage_logs and returns the document id 49ms
+ ✓ tests/FirestoreRestRepository.test.js > FirestoreRestRepository > saveUsageLog > rejects an invalid execution_type without calling the API 2ms
+ ✓ tests/FirestoreRestRepository.test.js > FirestoreRestRepository > saveUsageLog > accepts execution_type ORDER and SEARCH 2ms
+ ✓ tests/FirestoreRestRepository.test.js > FirestoreRestRepository > saveUsageLog > rejects a non-object payload 1ms
+ ✓ tests/FirestoreRestRepository.test.js > FirestoreRestRepository > saveEntries > PATCHes the entries array to entries_cache/latest and returns the doc id 4ms
+ ✓ tests/FirestoreRestRepository.test.js > FirestoreRestRepository > saveEntries > rejects a non-array payload 1ms
+ ✓ tests/FirestoreRestRepository.test.js > FirestoreRestRepository > saveEntries > throws when the API responds with an error 2ms
+ ✓ tests/FirestoreRestRepository.test.js > FirestoreRestRepository > getSystemConfig > returns the defaults when the document does not exist (404) 1ms
+ ✓ tests/FirestoreRestRepository.test.js > FirestoreRestRepository > getSystemConfig > decodes and merges the stored document with the defaults 1ms
+ ✓ tests/FirestoreRestRepository.test.js > FirestoreRestRepository > updateSystemConfig > PATCHes the merged configuration to system_config/global 1ms
+ ✓ tests/FirestoreRestRepository.test.js > FirestoreRestRepository > updateSystemConfig > rejects a non-object payload 1ms
+stdout | tests/worker.test.js > worker - scheduled handler > scrapes, saves entries and audits as SCHEDULED with reason "(each 2 h)"
+[scheduled] {
+  skipped: false,
+  entries_count: 3,
+  execution_time_ms: 0,
+  log_id: 'log-1',
+  filter_applied: 'Scraping and save entries (each 2 h)'
+}
+
+stdout | tests/worker.test.js > worker - scheduled handler > describes hourly cron expressions as "each N h"
+[scheduled] {
+  skipped: false,
+  entries_count: 3,
+  execution_time_ms: 0,
+  log_id: 'log-1',
+  filter_applied: 'Scraping and save entries (each 6 h)'
+}
+
+stdout | tests/worker.test.js > worker - scheduled handler > skips the execution when cron_enabled is false
+[scheduled] skipped: cron_enabled is false
+
+ ✓ tests/worker.test.js > worker - fetch handler > returns service info on GET / with a valid API key 9ms
+ ✓ tests/worker.test.js > worker - fetch handler > answers OPTIONS with CORS headers without requiring an API key 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > rejects any request without an API key with 401 2ms
+ ✓ tests/worker.test.js > worker - fetch handler > rejects an invalid API key with 401 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > accepts the API key via Authorization Bearer header 2ms
+ ✓ tests/worker.test.js > worker - fetch handler > returns 500 when the server has no API key configured 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > rejects an unknown filter with 400 and the valid filter list 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > returns all entries unfiltered on NO_FILTER and audits as NO_FILTER 3ms
+ ✓ tests/worker.test.js > worker - fetch handler > runs MORE_THAN_5_WORDS_BY_COMMENTS: scrapes, filters, sorts by comments and audits as MANUAL 3ms
+ ✓ tests/worker.test.js > worker - fetch handler > runs LESS_OR_EQUAL_5_WORDS_BY_POINTS: filters and sorts by points desc 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > scrapes and saves entries on GET /api/scrape with reason "(manual)" 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > returns the system config on GET /api/config 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > updates the system config on PUT /api/config 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > rejects an invalid JSON body on PUT /api/config with 400 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > returns 404 for unknown routes 0ms
+ ✓ tests/worker.test.js > worker - fetch handler > returns 500 with the error message when a service fails 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > saves an ORDER usage log via POST /api/logs 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > saves a SEARCH usage log via POST /api/logs 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > rejects POST /api/logs with invalid JSON 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > requires the API key on POST /api/logs 0ms
+ ✓ tests/worker.test.js > worker - scheduled handler > scrapes, saves entries and audits as SCHEDULED with reason "(each 2 h)" 2ms
+ ✓ tests/worker.test.js > worker - scheduled handler > describes hourly cron expressions as "each N h" 1ms
+ ✓ tests/worker.test.js > worker - scheduled handler > skips the execution when cron_enabled is false 1ms
+
+ Test Files  3 passed (3)
+      Tests  60 passed (60)
+   Start at  11:07:58
+   Duration  1.02s (import 53%, transform 32%, tests 12%, worker 3%)
 
