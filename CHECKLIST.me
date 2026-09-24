@@ -1,0 +1,151 @@
+# CHECKLIST — Requirements Compliance
+
+Status legend: **[x]** completed · **[~]** completed with observation · **[ ]** not started
+
+---
+
+## 1. Project summary & objectives
+
+- [x] Full-stack Hacker News scraping solution
+- [x] Processes exactly the first **30** entries
+- [x] Filter/sort by title word-count business rules
+- [x] Usage audit stored in Firebase Firestore
+- [x] Two execution modes: **Manual (on-demand)** and **Scheduled (cron)** on Cloudflare Workers
+
+---
+
+## 2. Functional requirements & business rules
+
+### 2.1 Data extraction (scraper)
+
+- [x] Extract first 30 entries from `tr.athing` rows
+- [x] Entity fields: `number` (int), `title` (string), `points` (int, default 0), `comments` (int, default 0 for “discuss” or missing)
+- [x] Edge cases covered in tests (missing score, “discuss”, “1 comment”, no comments link)
+
+### 2.2 Word-count logic
+
+- [x] Words split strictly by whitespace (`\s+`)
+- [x] Isolated symbols/punctuation excluded
+- [x] Example verified: `"This is - a self-explained example"` → exactly **5** words
+
+### 2.3 Filters & ordering (strategies)
+
+- [x] `MORE_THAN_5_WORDS_BY_COMMENTS` — > 5 words, sort by comments desc
+- [x] `LESS_OR_EQUAL_5_WORDS_BY_POINTS` — ≤ 5 words, sort by points desc
+- [x] Strategies do not mutate the input array
+- [~] **Observation:** added extra filter id `NO_FILTER` (no strategy; returns all entries in original order) for the default UI view and Worker endpoint
+
+### 2.4 Telemetry & audit
+
+- [x] Collection `usage_logs` with `timestamp` (ISO 8601)
+- [x] `filter_applied`
+- [x] `results_count`
+- [x] `execution_type`: `"MANUAL"` | `"SCHEDULED"` (validated; invalid values rejected)
+- [x] `execution_time_ms`
+- [~] **Observation:** save reasons also include human-readable strings for scrape-only runs (`Scraping and save entries (manual)` / `(each N h)`)
+
+---
+
+## 3. Architecture & SOLID
+
+- [x] Layered / Clean Architecture: Frontend → Firestore ↔ Backend Worker
+- [x] Collections: `usage_logs`, `entries_cache`, `system_config`
+- [x] **SRP** — dedicated classes per responsibility
+- [x] **OCP** — Strategy pattern for filters; new filters without modifying existing ones
+- [x] **LSP** — repositories and strategies are substitutable (asserted in tests)
+- [x] **ISP** — `BaseRepository` limited to four required methods
+- [x] **DIP** — abstractions + constructor injection; mocks in unit tests
+- [~] **Observation:** diagram still lists a generic `FirestoreRepository`; implementation adds **`FirestoreRestRepository`** as second concrete repository for Workers (see technical decisions)
+
+---
+
+## 4. Project structure
+
+- [x] `/backend` with `src/services`, `src/repositories`, `src/config`, `worker.js`, `tests/`, `wrangler.toml`, `package.json`
+- [~] **Observation:** spec listed `/domain/Entry.js` — **not created**; entry shape is a plain object produced by the scraper and validated by tests instead of a dedicated class
+- [~] **Observation:** added `BaseRepository.js`, `FirestoreRestRepository.js`, `firebaseConfig.js`, `firebase.js` beyond the minimal tree
+- [x] `/frontend` with `components/`, `services/`, `App.jsx`, `package.json`, `README.md`
+- [~] **Observation:** added `TopBar.jsx` and `Modal.jsx` in Phase 6 (UI refinement)
+
+---
+
+## 5. Roadmap steps
+
+### Step 1 — Domain: word count & filters + unit tests
+
+- [x] `WordCounter.js` (regex split, isolated symbols discarded)
+- [x] Strategy implementations for both filters
+- [x] `WordCounter.test.js`, `FilterStrategies.test.js` including the 5-word example
+
+### Step 2 — Web scraping service
+
+- [x] `HackerNewsScraper.js` with cheerio, first 30 records, edge cases
+- [x] `HackerNewsScraper.test.js` with mocked HTML/fetch
+- [~] **Observation:** extra real-site smoke test `HackerNewsScraperWeb.test.js` (`npm run test:web`)
+
+### Step 3 — Persistence & audit (Firebase)
+
+- [x] `FirestoreRepository.js`: `saveUsageLog`, `saveEntries`, `getSystemConfig`, `updateSystemConfig`
+- [x] Separate config file `firebaseConfig.js` with provided Firebase project values
+- [x] Repository abstraction allows any database (main: Firebase)
+- [x] Unit tests + real Firestore integration tests
+- [~] **Observation:** `DEFAULT_SYSTEM_CONFIG` exported for reuse; merge semantics for partial config updates
+
+### Step 4 — Serverless backend (Cloudflare Worker)
+
+- [x] `worker.js` fetch handler (manual HTTP API)
+- [x] `worker.js` scheduled handler (cron trigger)
+- [x] `wrangler.toml` with timed trigger (`0 */2 * * *`)
+- [~] **Observation — API key security (added requirement):** the main router enforces a **static API key** on every non-OPTIONS request (`x-api-key` or `Authorization: Bearer`). Missing/invalid key → **401**; server without configured key → **500** (fail-closed). Key stored in `wrangler.toml` `[vars] API_KEY`. CORS allows `x-api-key` and `authorization` headers. Covered by unit tests in `worker.test.js`.
+- [~] **Observation:** `NO_FILTER` must not be a named export of `worker.js` (workerd treats named exports as handlers)
+
+### Step 5 — Frontend (React + Vite)
+
+- [x] Filter selector panel (`FilterControls`)
+- [x] Reactive results table (`ResultsTable`)
+- [x] Realtime logs component connected to Firestore via `onSnapshot`
+- [x] Execution mode selector (Manual vs scheduled frequency)
+- [x] Services: `api.js` (Worker HTTP client with API key header), `firebase.js` (init + subscriptions)
+- [~] **Observation:** results also default from `entries_cache` realtime subscription; API client sends `x-api-key` on every request
+
+### Step 6 — UI refinement (AI-assisted phase)
+
+- [x] Friendly filter inputs (chips with icons/hints; default **All entries / NO_FILTER**)
+- [x] Friendly execution type inputs (segmented Manual/Scheduled + frequency select)
+- [x] Logs opened from a **top menu button** (modal), not a fixed panel
+- [x] Execution settings also opened from the **top menu** (modal)
+- [x] Everything accessible in **one place** (single screen + modals)
+- [x] **Results list is the main block** of the application (primary layout focus)
+- [x] `oxlint` 0 errors · `vite build` success
+
+### Step 7 — Final documentation & version control
+
+- [x] Ordered incremental commit history on GitHub (`main`)
+- [x] `README.md` — architecture, SOLID, install, tests, technical decisions
+- [x] `CHECKLIST.me` — this document
+- [x] `ObjectsLibrary.me` — object catalog (frontend/backend)
+- [x] `testresults.me` — cumulative automated test evidence
+
+---
+
+## 6. Additional observations (post-spec enhancements)
+
+- [~] **Static API key in Worker router** — required for every GET/PUT/POST; frontend client injects the header; local default matches `wrangler.toml`.
+- [~] **Dual persistence strategy** — SDK repository (Node/tests) + REST repository (Cloudflare Workers) behind the same interface.
+- [~] **`NO_FILTER` endpoint & UI option** — unfiltered view by default; audits as `filter_applied: "NO_FILTER"`.
+- [~] **Phase 6 UI redesign** — `TopBar` + `Modal` + chip filters + results-first layout (implemented with AI assistance as specified in Step 6).
+- [ ] Production deployment (`wrangler deploy`, `wrangler secret put API_KEY`, frontend production URL) — not required for local evaluation; pending if needed.
+
+---
+
+## 7. Test evidence summary
+
+| Evidence file | Content |
+|---|---|
+| `testresults.me` | Steps 1–5 (+ apiKey run, frontend lint/build) recorded per phase |
+| `npm test` (backend) | Full Vitest suite green at time of last commit |
+| `npm run lint` / `npm run build` (frontend) | 0 lint errors; successful production build |
+
+---
+
+**Overall:** all functional requirements from `Requirements.me` are implemented. Observations mark additive work (API key auth, REST repository, `NO_FILTER`, Phase 6 UI) and the one spec item intentionally skipped (`domain/Entry.js`).

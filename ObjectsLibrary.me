@@ -1,0 +1,1038 @@
+# Objects Library
+
+Catalog of the main objects (classes, components and service modules) used in the project, classified by **backend** and **frontend**. Each entry includes a relational diagram, general description, variables, constructor, methods and related objects.
+
+---
+
+# Backend
+
+---
+
+## 1. `WordCounter`
+
+**File:** `backend/src/services/WordCounter.js`
+
+### Relational diagram
+
+```
+WordCounter
+    ▲ injected (DIP)
+    │
+    ├── MoreThanFiveWordsStrategy  ── counts entry.title to apply > 5 rule
+    └── LessOrEqualFiveWordsStrategy ── counts entry.title to apply ≤ 5 rule
+```
+
+| Related object | Relationship |
+|---|---|
+| `MoreThanFiveWordsStrategy` | Receives a `WordCounter` instance; uses `count()` inside `apply()`. |
+| `LessOrEqualFiveWordsStrategy` | Same injection pattern; different threshold and sort field. |
+| Worker `createServices()` | Creates one shared `WordCounter` and injects it into both strategies. |
+
+### Description & characteristics
+
+Pure domain service that counts words in a title. Splits on whitespace, ignores isolated symbols/punctuation. Stateless, deterministic, no I/O — easy to unit test.
+
+### Variables
+
+| Name | Type | Description |
+|---|---|---|
+| `WORD_SEPARATOR` | `RegExp` (module) | `/\s+/` — split on any whitespace run. |
+| `ISOLATED_SYMBOL` | `RegExp` (module) | `/^[^\p{L}\p{N}]+$/u` — token with no letters/digits. |
+
+### Constructor
+
+Default (no explicit constructor). Instantiated as `new WordCounter()`.
+
+### Methods
+
+| Method | What it does |
+|---|---|
+| `count(title)` | Returns `0` for non-string/empty input; otherwise trims, splits by `WORD_SEPARATOR`, filters out isolated symbols, returns token count. |
+
+### Related objects list
+
+- `MoreThanFiveWordsStrategy`
+- `LessOrEqualFiveWordsStrategy`
+- `createServices` (worker.js)
+
+---
+
+## 2. `FilterStrategy` (abstract base)
+
+**File:** `backend/src/services/strategies/FilterStrategy.js`
+
+### Relational diagram
+
+```
+FilterStrategy (base / contract)
+    ▲ extends
+    │
+    ├── MoreThanFiveWordsStrategy
+    └── LessOrEqualFiveWordsStrategy
+              ▲ used via
+              │
+         handleEntriesQuery (worker)  ── strategy.apply(entries)
+```
+
+| Related object | Relationship |
+|---|---|
+| Concrete strategies | Inherit and override `apply()` (OCP + LSP). |
+| `handleEntriesQuery` | Looks up strategy by filter id; only depends on the base contract (DIP). |
+
+### Description & characteristics
+
+Abstract filter contract: identifies a filter by `name` and requires subclasses to implement `apply(entries)`. Enables the Strategy pattern.
+
+### Variables
+
+| Name | Type | Description |
+|---|---|---|
+| `this.name` | `string` | Filter identifier (e.g. `MORE_THAN_5_WORDS_BY_COMMENTS`). |
+
+### Constructor
+
+| Parameter | Type | Description |
+|---|---|---|
+| `name` | `string` | Filter id stored on the instance. |
+
+### Methods
+
+| Method | What it does |
+|---|---|
+| `apply(entries)` | Throws by default — forces subclasses to implement filtering/ordering. |
+
+### Related objects list
+
+- `MoreThanFiveWordsStrategy`
+- `LessOrEqualFiveWordsStrategy`
+- `handleEntriesQuery`
+
+---
+
+## 3. `MoreThanFiveWordsStrategy`
+
+**File:** `backend/src/services/strategies/MoreThanFiveWordsStrategy.js`
+
+### Relational diagram
+
+```
+FilterStrategy
+      ▲ extends
+MoreThanFiveWordsStrategy
+      │ uses
+WordCounter.count(title)
+      │ filters/sorts
+Entry[] ──► results (comments desc)
+```
+
+| Related object | Relationship |
+|---|---|
+| `FilterStrategy` | Parent contract (`name` + `apply`). |
+| `WordCounter` | Injected dependency for word counting. |
+| `Entry` objects | Input array; non-mutating `filter` + `sort`. |
+
+### Description & characteristics
+
+Keeps entries whose title has **more than 5** words; sorts by **comments descending**. Does not mutate the input array.
+
+### Variables
+
+| Name | Type | Description |
+|---|---|---|
+| `MIN_WORD_COUNT` | `number` (const) | `5` — threshold for `>`. |
+| `this.name` | `string` | `'MORE_THAN_5_WORDS_BY_COMMENTS'`. |
+| `this.wordCounter` | `WordCounter` | Injected counter. |
+
+### Constructor
+
+| Parameter | Type | Description |
+|---|---|---|
+| `wordCounter` | `WordCounter` | Passed to logic; `super('MORE_THAN_5_WORDS_BY_COMMENTS')`. |
+
+### Methods
+
+| Method | What it does |
+|---|---|
+| `apply(entries)` | Filters titles with `count > 5`, sorts by `comments` descending, returns new array. |
+
+### Related objects list
+
+- `FilterStrategy`
+- `WordCounter`
+
+---
+
+## 4. `LessOrEqualFiveWordsStrategy`
+
+**File:** `backend/src/services/strategies/LessOrEqualFiveWordsStrategy.js`
+
+### Relational diagram
+
+```
+FilterStrategy
+      ▲ extends
+LessOrEqualFiveWordsStrategy
+      │ uses
+WordCounter.count(title)
+      │ filters/sorts
+Entry[] ──► results (points desc)
+```
+
+| Related object | Relationship |
+|---|---|
+| `FilterStrategy` | Parent contract. |
+| `WordCounter` | Injected for counting. |
+| `Entry` objects | Filter ≤ 5 words, sort by points. |
+
+### Description & characteristics
+
+Keeps entries with **5 or fewer** title words (includes boundary `=== 5`); sorts by **points descending**. Non-mutating.
+
+### Variables
+
+| Name | Type | Description |
+|---|---|---|
+| `MAX_WORD_COUNT` | `number` (const) | `5` — threshold for `<=`. |
+| `this.name` | `string` | `'LESS_OR_EQUAL_5_WORDS_BY_POINTS'`. |
+| `this.wordCounter` | `WordCounter` | Injected counter. |
+
+### Constructor
+
+| Parameter | Type | Description |
+|---|---|---|
+| `wordCounter` | `WordCounter` | `super('LESS_OR_EQUAL_5_WORDS_BY_POINTS')`. |
+
+### Methods
+
+| Method | What it does |
+|---|---|
+| `apply(entries)` | Filters titles with `count <= 5`, sorts by `points` descending, returns new array. |
+
+### Related objects list
+
+- `FilterStrategy`
+- `WordCounter`
+
+---
+
+## 5. `HackerNewsScraper`
+
+**File:** `backend/src/services/HackerNewsScraper.js`
+
+### Relational diagram
+
+```
+HackerNewsScraper
+    │ fetcher (injectable)
+    ▼
+news.ycombinator.com ──HTML──► cheerio parse ──► Entry[30]
+    ▲
+    │ called by
+handleEntriesQuery / handleManualScrape / handleScheduled (worker.js)
+```
+
+| Related object | Relationship |
+|---|---|
+| Worker handlers | Call `scrape()` as the data source for API and cron flows. |
+| Entry objects | Output shape: `{ number, title, points, comments }`. |
+| Global `fetch` | Default fetcher; tests inject a mock fetcher (DIP). |
+
+### Description & characteristics
+
+Fetches and parses Hacker News HTML. Limits output to **30** entries. Handles missing points (“0”) and missing comments (“discuss” / absent link → `0`).
+
+### Variables
+
+| Name | Type | Description |
+|---|---|---|
+| `DEFAULT_URL` | `string` (const) | `https://news.ycombinator.com/`. |
+| `MAX_ENTRIES` | `number` (const) | `30`. |
+| `this.fetcher` | `function` | `(url) => Response` — injectable HTTP client. |
+
+### Constructor
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `fetcher` | `function` | `(url) => globalThis.fetch(url)` | HTTP transport for testability. |
+
+### Methods
+
+| Method | What it does |
+|---|---|
+| `scrape(url?)` | Fetches HTML then parses; returns `Entry[]` (max 30). |
+| `fetchHtml(url)` | Calls `fetcher`; throws on non-OK response; returns text body. |
+| `parse(html)` | Cheerio load; walks `tr.athing` rows; builds entries with ordinal `number`, title, parsed points/comments. |
+
+Module helpers: `parsePoints(scoreText)`, `parseComments(linkTexts)`.
+
+### Related objects list
+
+- Worker `handleEntriesQuery`, `handleManualScrape`, `handleScheduled`
+- Entry plain objects
+
+---
+
+## 6. `BaseRepository` (interface / abstract)
+
+**File:** `backend/src/repositories/BaseRepository.js`
+
+### Relational diagram
+
+```
+BaseRepository (contract — ISP/DIP)
+    ▲ extends                ▲ implements (same contract)
+    │                        │
+FirestoreRepository    FirestoreRestRepository
+    │                        │
+Node/SDK (tests)        Cloudflare Worker (REST + fetch)
+    └──────── both used interchangeably (LSP) ────────┘
+```
+
+| Related object | Relationship |
+|---|---|
+| `FirestoreRepository` | SDK implementation (Node/tests). |
+| `FirestoreRestRepository` | REST implementation (Workers). |
+| Worker / integration tests | Depend only on this contract. |
+
+### Description & characteristics
+
+Defines the four persistence operations the application needs. All methods throw until implemented — forces complete implementations (template for LSP tests).
+
+### Variables
+
+None.
+
+### Constructor
+
+Default (no state).
+
+### Methods
+
+| Method | What it does |
+|---|---|
+| `saveUsageLog()` | Abstract — must write an audit log. |
+| `saveEntries()` | Abstract — must persist scraped entries cache. |
+| `getSystemConfig()` | Abstract — must read cron configuration. |
+| `updateSystemConfig()` | Abstract — must merge-update configuration. |
+
+### Related objects list
+
+- `FirestoreRepository`
+- `FirestoreRestRepository`
+
+---
+
+## 7. `FirestoreRepository` (SDK)
+
+**File:** `backend/src/repositories/FirestoreRepository.js`
+
+### Relational diagram
+
+```
+BaseRepository
+      ▲ extends
+FirestoreRepository
+      │ this.db (injected Firestore instance)
+      ▼
+firebase/firestore (collection/doc/setDoc/getDoc)
+      │
+      ▼
+Collections: usage_logs · entries_cache/latest · system_config/global
+      ▲
+      │ created by
+createFirestoreDb() ── from firebaseConfig
+```
+
+| Related object | Relationship |
+|---|---|
+| `BaseRepository` | Parent contract. |
+| `createFirestoreDb()` | Supplies `db` instance into constructor. |
+| `DEFAULT_SYSTEM_CONFIG` | Fallback when config doc missing. |
+| Frontend Firestore SDK | Same project/collections; realtime reads. |
+
+### Description & characteristics
+
+Primary Firebase persistence for **Node and tests** using the official SDK. Validates `execution_type`, normalizes logs, overwrites `entries_cache/latest`, merges config.
+
+### Variables
+
+| Name | Type | Description |
+|---|---|---|
+| `USAGE_LOGS_COLLECTION` etc. | `string` (const) | Collection/document names. |
+| `VALID_EXECUTION_TYPES` | `string[]` | `['MANUAL','SCHEDULED']`. |
+| `DEFAULT_SYSTEM_CONFIG` | `object` (export) | `{ cron_enabled, cron_expression }`. |
+| `this.db` | Firestore | Injected database instance. |
+
+### Constructor
+
+| Parameter | Type | Description |
+|---|---|---|
+| `db` | Firestore | Required; throws if missing. |
+
+### Methods
+
+| Method | What it does |
+|---|---|
+| `saveUsageLog(logData)` | Validates object + execution type; writes normalized log; returns new doc id. |
+| `saveEntries(entries)` | Requires array; writes `{ saved_at, entries }` to `entries_cache/latest`; returns id. |
+| `getSystemConfig()` | Reads `system_config/global`; merges over defaults if missing/partial. |
+| `updateSystemConfig(config)` | Rejects non-objects; `setDoc` with `merge: true`; returns fresh config. |
+
+### Related objects list
+
+- `BaseRepository`
+- `firebase.js` (`createFirestoreDb`)
+- `DEFAULT_SYSTEM_CONFIG`
+
+---
+
+## 8. `FirestoreRestRepository` (REST — Workers)
+
+**File:** `backend/src/repositories/FirestoreRestRepository.js`
+
+### Relational diagram
+
+```
+BaseRepository
+      ▲ extends
+FirestoreRestRepository
+      │ encode/decode helpers
+      ▼
+Firestore REST API (firestore.googleapis.com) + ?key=API_KEY
+      ▲
+      │ instantiated by
+createServices(env) in worker.js  ── env.FIREBASE_* / firebaseConfig defaults
+```
+
+| Related object | Relationship |
+|---|---|
+| `BaseRepository` | Same contract as SDK repo (LSP). |
+| `firebaseConfig` | Default `projectId` / `apiKey` when env absent. |
+| `createServices` | Builds instance for every Worker request/scheduled run. |
+| encode/decode module functions | Translate JS values ↔ Firestore REST field encoding. |
+
+### Description & characteristics
+
+Cloudflare Workers–compatible persistence via **Firestore REST API** and `fetch` (SDK is incompatible with Workers). Supports injectable `fetcher` for unit tests.
+
+### Variables
+
+| Name | Type | Description |
+|---|---|---|
+| Collection/doc consts | `string` | Same names as SDK repository. |
+| `DEFAULT_SYSTEM_CONFIG` | `object` (export) | Defaults on 404 / merge base. |
+| `this.projectId` | `string` | Firebase project id. |
+| `this.apiKey` | `string` | Web API key for `?key=`. |
+| `this.fetcher` | `function` | HTTP client. |
+| `this.baseUrl` | `string` | REST documents base URL. |
+
+### Constructor
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `projectId` | `string` | from `firebaseConfig` | Required. |
+| `apiKey` | `string` | from `firebaseConfig` | Required. |
+| `fetcher` | `function` | `globalThis.fetch` | Injectable transport. |
+
+### Methods
+
+| Method | What it does |
+|---|---|
+| `#request(method, path, body)` (private) | Low-level REST call; maps 404 → `{ notFound: true }`; throws on other errors. |
+| `saveUsageLog(logData)` | Validates; `POST` encoded log to `usage_logs`; returns document id. |
+| `saveEntries(entries)` | Validates array; `PATCH` `entries_cache/latest`; returns `'latest'`. |
+| `getSystemConfig()` | `GET` config doc; 404 → defaults; else decode + merge. |
+| `updateSystemConfig(config)` | Validates; merges with defaults; `PATCH` full encoded doc; returns merged object. |
+
+Module helpers: `encodeValue`, `encodeFields`, `decodeValue`, `decodeFields`, `documentIdFromName`.
+
+### Related objects list
+
+- `BaseRepository`
+- `firebaseConfig`
+- `createServices` (worker.js)
+
+---
+
+## 9. Worker module (`worker.js`) — handlers & helpers
+
+**File:** `backend/src/worker.js`
+
+### Relational diagram
+
+```
+Cloudflare runtime
+   ├── fetch(request, env, ctx) ──► handleFetch ──► routes
+   └── scheduled(event, env, ctx) ► handleScheduled
+
+handleFetch
+   ├── OPTIONS → CORS
+   ├── API key check (extractApiKey / isAuthorized)
+   ├── GET /            → service info
+   ├── GET /api/entries → handleEntriesQuery ── scraper + strategy + saveUsageLog
+   ├── GET /api/scrape  → handleManualScrape ── scraper + saveEntries + saveUsageLog
+   └── * /api/config    → handleGetConfig / handleUpdateConfig
+
+createServices(env)
+   ├── HackerNewsScraper
+   ├── WordCounter + 2 strategies
+   ├── FirestoreRestRepository
+   └── apiKey (env.API_KEY)
+```
+
+| Related object | Relationship |
+|---|---|
+| `HackerNewsScraper`, strategies, `FirestoreRestRepository` | Assembled in `createServices` and injected into handlers. |
+| `wrangler.toml` `[vars]` | Supplies `API_KEY` (and optional Firebase env overrides). |
+| Frontend `api.js` | HTTP client calling these routes with `x-api-key`. |
+
+### Description & characteristics
+
+Main Worker entry: single fetch router for all HTTP traffic plus cron handler. Enforces static API key on every non-OPTIONS request. Exports only handler-related symbols (extra named exports break workerd).
+
+### Variables (module)
+
+| Name | Description |
+|---|---|
+| `CORS_HEADERS` | Allows origin `*`, methods, headers `content-type, x-api-key, authorization`. |
+| `NO_FILTER` | Special filter id (local const — **not exported**). |
+
+### Functions / “methods”
+
+| Function | What it does |
+|---|---|
+| `json(data, status)` | JSON response helper with CORS. |
+| `buildSaveReason(type, freqLabel)` | Audit reason string for manual/scheduled saves. |
+| `describeFrequency(cron)` | `'0 */N * * *'` → `'each N h'`. |
+| `extractApiKey(request)` | Reads `x-api-key` or Bearer token. |
+| `isAuthorized(request, apiKey)` | Constant-time-enough equality check; fails closed. |
+| `createServices(env)` | DI container for one request/cron invocation. |
+| `handleEntriesQuery(url, services)` | Auth already passed; scrape → strategy or `NO_FILTER` → audit → JSON. |
+| `handleManualScrape(services)` | Scrape → `saveEntries` → audit `(manual)`. |
+| `handleGetConfig` / `handleUpdateConfig` | Read/merge `system_config`. |
+| `handleFetch(request, services)` | Router + auth gate + error → 500 JSON. |
+| `handleScheduled(services)` | Respect `cron_enabled`; scrape → save → audit `(each N h)`. |
+| `default.fetch / default.scheduled` | Cloudflare entrypoints. |
+
+### Related objects list
+
+- `HackerNewsScraper`
+- `MoreThanFiveWordsStrategy`, `LessOrEqualFiveWordsStrategy`
+- `WordCounter`
+- `FirestoreRestRepository`
+- `wrangler.toml`
+
+---
+
+## 10. `firebaseConfig` & `createFirestoreDb` (backend config)
+
+**Files:** `backend/src/config/firebaseConfig.js`, `backend/src/config/firebase.js`
+
+### Relational diagram
+
+```
+firebaseConfig ──► FirestoreRepository / FirestoreRestRepository defaults
+       │
+createFirestoreDb() ── initializeApp + getFirestore ──► FirestoreRepository(db)
+```
+
+| Related object | Relationship |
+|---|---|
+| Repositories | Share project credentials. |
+| Frontend `firebase.js` | Same Firebase project for realtime reads. |
+
+### Description & characteristics
+
+Separates Firebase credentials from business logic. Factory `createFirestoreDb()` builds a Firestore instance for the SDK repository.
+
+### Variables (`firebaseConfig`)
+
+`apiKey`, `authDomain`, `projectId`, `storageBucket`, `messagingSenderId`, `appId`.
+
+### Methods
+
+| Function | What it does |
+|---|---|
+| `createFirestoreDb()` | `initializeApp(firebaseConfig)` + `getFirestore(app)`; returns `db`. |
+
+### Related objects list
+
+- `FirestoreRepository`
+- `FirestoreRestRepository`
+- Frontend Firebase app
+
+---
+
+# Frontend
+
+---
+
+## 11. `App` (root component)
+
+**File:** `frontend/src/App.jsx`
+
+### Relational diagram
+
+```
+App
+ ├── TopBar ── onOpenLogs / onOpenSchedule / logCount / mode
+ ├── FilterControls ── selectedFilter, onRun, onScrape
+ ├── ResultsTable ── displayedResults, meta, source
+ ├── Modal(logs) ── AuditLogsTable (logs, logsError)
+ └── Modal(schedule) ── ScheduleConfig + footer Save
+         │
+         ├── api.js (fetchEntries, scrapeNow, get/updateSystemConfig)
+         └── firebase.js (subscribeUsageLogs, subscribeEntriesCache)
+```
+
+| Related object | Relationship |
+|---|---|
+| `TopBar`, `Modal`, panels | Composition / layout ownership. |
+| `api.js` | Manual HTTP actions (filters, scrape, config). |
+| `firebase.js` | Realtime subscriptions for cache + audit logs. |
+
+### Description & characteristics
+
+Owns all application state and wiring. Single-screen UX: Results is primary; Logs and Execution open as modals from the top menu.
+
+### Variables (state)
+
+| State | Initial | Purpose |
+|---|---|---|
+| `selectedFilter` | `'NO_FILTER'` | Active chip. |
+| `cachedEntries` | `[]` | Realtime `entries_cache`. |
+| `results` | `null` | Last API filter response (`null` = show cache). |
+| `meta` | `null` | Filter/run metadata for Results header. |
+| `logs`, `logsError` | `[]`, `null` | Realtime audit list. |
+| `config`, `mode`, `frequencyHours` | config-driven | Execution settings form. |
+| `loading`, `saving` | `false` | Button busy states. |
+| `notice`, `error` | `null` | User feedback banners. |
+| `openPanel` | `null` | `'logs'` \| `'schedule'` \| closed. |
+
+Derived: `displayedResults = results ?? cachedEntries`; `resultsSource`.
+
+### Constructor / mount
+
+React function component; two `useEffect`s: (1) Firestore subscriptions with cleanup, (2) load system config once.
+
+### Methods (handlers)
+
+| Method | What it does |
+|---|---|
+| `runFilter()` | `fetchEntries(selectedFilter)` → set results/meta/notice. |
+| `runScrape()` | `scrapeNow()` → clear API results (back to cache) + notice. |
+| `saveConfig()` | PUT cron settings; closes schedule modal on success. |
+| `handleFrequencyChange(hours)` | Updates select + preview `cron_expression`. |
+| `handleModeChange(mode)` | Toggles manual/scheduled + `cron_enabled`. |
+| `handleSelectFilter(id)` | Sets chip; `NO_FILTER` clears API results → cache view. |
+
+### Related objects list
+
+- `TopBar`, `Modal`, `FilterControls`, `ResultsTable`, `AuditLogsTable`, `ScheduleConfig`
+- `api.js`, `firebase.js`
+
+---
+
+## 12. `TopBar`
+
+**File:** `frontend/src/components/TopBar.jsx`
+
+### Relational diagram
+
+```
+TopBar
+  ├── brand (static)
+  └── menu buttons
+        ├── Execution ──► App.openPanel='schedule' (+ mode pill)
+        └── Logs ───────► App.openPanel='logs' (+ logCount badge)
+```
+
+| Related object | Relationship |
+|---|---|
+| `App` | Callback props open modals; receives `logCount` and `mode`. |
+
+### Description & characteristics
+
+Sticky header with brand and navigation to **all secondary features** in one place (logs + execution), keeping Results as the main body.
+
+### Variables (props)
+
+| Prop | Type | Description |
+|---|---|---|
+| `logCount` | `number` | Badge on Logs button. |
+| `onOpenLogs` | `function` | Opens logs modal. |
+| `onOpenSchedule` | `function` | Opens execution modal. |
+| `mode` | `'manual' \| 'scheduled'` | Pill color/label. |
+
+### Constructor
+
+Function component; no local state.
+
+### Methods
+
+None (presentation only; invokes props).
+
+### Related objects list
+
+- `App`
+- (UI) `Modal` targets
+
+---
+
+## 13. `Modal`
+
+**File:** `frontend/src/components/Modal.jsx`
+
+### Relational diagram
+
+```
+App.openPanel ──► Modal(open, title, onClose, children, footer)
+                       │
+                       ├── children: AuditLogsTable | ScheduleConfig
+                       └── footer: Save button (schedule modal)
+```
+
+| Related object | Relationship |
+|---|---|
+| `App` | Controls `open`; provides content and close handler. |
+| Panel components | Rendered inside `modal-body`. |
+
+### Description & characteristics
+
+Accessible dialog: overlay click and **Escape** close it; locks body scroll while open; `role="dialog"` + `aria-modal`.
+
+### Variables (props)
+
+| Prop | Description |
+|---|---|
+| `title` | Header title. |
+| `open` | Visibility flag. |
+| `onClose` | Close callback. |
+| `children` | Body content. |
+| `footer` | Optional footer slot. |
+
+### Constructor
+
+Function component; `useEffect` binds/unbinds keydown + overflow when `open` changes.
+
+### Methods
+
+Render only; event handlers call `onClose` / stop propagation.
+
+### Related objects list
+
+- `App`
+- `AuditLogsTable`, `ScheduleConfig`
+
+---
+
+## 14. `FilterControls`
+
+**File:** `frontend/src/components/FilterControls.jsx`
+
+### Relational diagram
+
+```
+FilterControls (FILTERS constant: NO_FILTER, MORE_…, LESS_…)
+      │ chip click
+      ▼
+App.handleSelectFilter ──► selectedFilter
+      │ buttons
+      ├── Load all / Apply filter ──► App.runFilter ──► api.fetchEntries
+      └── Scrape & save ───────────► App.runScrape ──► api.scrapeNow
+```
+
+| Related object | Relationship |
+|---|---|
+| `App` | Controlled by `selectedFilter`; invokes run callbacks. |
+| `api.js` | Indirect — App calls API on button press. |
+| Worker filter ids | Chip ids match backend `filter` query values. |
+
+### Description & characteristics
+
+Friendly chip/radio filter UI with icons and hints; default **All entries (`NO_FILTER`)**; primary/ghost actions.
+
+### Variables
+
+| Name | Description |
+|---|---|
+| `FILTERS` (module) | Array of `{ id, label, hint, icon }` for the three options. |
+
+### Props
+
+`selectedFilter`, `onSelectFilter`, `onRun`, `onScrape`, `loading`.
+
+### Constructor
+
+Function component; presentation only.
+
+### Methods
+
+Renders chips (`role="radio"`) and action buttons; no internal handlers beyond prop callbacks.
+
+### Related objects list
+
+- `App`
+- Backend filter ids (`NO_FILTER`, …)
+
+---
+
+## 15. `ResultsTable`
+
+**File:** `frontend/src/components/ResultsTable.jsx`
+
+### Relational diagram
+
+```
+App.displayedResults ──► ResultsTable
+   (results ?? cachedEntries)
+App.meta / resultsSource ──► header stats + source label
+```
+
+| Related object | Relationship |
+|---|---|
+| `App` | Sole data source (API results or cache). |
+| Entry objects | Rows: `number`, `title`, `points`, `comments`. |
+
+### Description & characteristics
+
+**Main UI block**: large panel, entry/ms stats, sticky table header, scrollable body, empty state guidance.
+
+### Props
+
+| Prop | Description |
+|---|---|
+| `results` | Array of entries to display. |
+| `meta` | Optional API meta (`filter`, `results_count`, `execution_time_ms`). |
+| `source` | `'api' \| 'cache' \| 'empty'` for label. |
+
+### Constructor
+
+Function component; pure presentational.
+
+### Methods
+
+None beyond render.
+
+### Related objects list
+
+- `App`
+- Entry plain objects
+
+---
+
+## 16. `AuditLogsTable`
+
+**File:** `frontend/src/components/AuditLogsTable.jsx`
+
+### Relational diagram
+
+```
+firebase.subscribeUsageLogs ──onSnapshot──► App.logs ──► Modal ──► AuditLogsTable
+```
+
+| Related object | Relationship |
+|---|---|
+| `firebase.js` | Data originates from realtime `usage_logs` query. |
+| `Modal` / `TopBar` | Displayed only when logs modal is open (from top menu). |
+
+### Description & characteristics
+
+Realtime audit trail table (timestamp, filter, results, type badge, execution ms). Used inside the Logs modal.
+
+### Props
+
+`logs` (array), `error` (string|null).
+
+### Constructor
+
+Function component; presentational.
+
+### Methods
+
+None.
+
+### Related objects list
+
+- `App`
+- `firebase.js` (`subscribeUsageLogs`)
+- `Modal`
+
+---
+
+## 17. `ScheduleConfig`
+
+**File:** `frontend/src/components/ScheduleConfig.jsx`
+
+### Relational diagram
+
+```
+App.config/mode/frequencyHours ──► ScheduleConfig
+      │ segment clicks / select
+      ▼
+App.handleModeChange / handleFrequencyChange
+      │ modal footer
+      ▼
+App.saveConfig ──► api.updateSystemConfig ──► PUT /api/config
+```
+
+| Related object | Relationship |
+|---|---|
+| `App` | Fully controlled form state. |
+| `api.js` | Persistence via `saveConfig` in App (footer button). |
+| Worker `system_config` | Backend document updated by PUT. |
+
+### Description & characteristics
+
+Friendly **Manual vs Scheduled** segmented control + “How often?” frequency select; shows raw cron meta. Rendered inside the Execution modal.
+
+### Variables (module)
+
+`FREQUENCY_OPTIONS = [1,2,3,4,6,8,12,24]`; helper `hoursFromCron`.
+
+### Props
+
+`config`, `mode`, `onModeChange`, `onFrequencyChange`.
+
+### Constructor
+
+Function component; controlled inputs.
+
+### Methods
+
+Render + prop callbacks only (save lives in `App` footer).
+
+### Related objects list
+
+- `App`
+- `Modal`
+- `api.js`
+
+---
+
+## 18. `api.js` (HTTP client)
+
+**File:** `frontend/src/services/api.js`
+
+### Relational diagram
+
+```
+App ──► api.fetchEntries / scrapeNow / getSystemConfig / updateSystemConfig
+              │
+              ▼  headers: x-api-key, content-type
+        Worker http://localhost:8787 (or VITE_API_BASE_URL)
+```
+
+| Related object | Relationship |
+|---|---|
+| Worker routes | 1:1 mapping to backend endpoints. |
+| `wrangler.toml` API_KEY | Client must send matching `VITE_API_KEY` / default. |
+
+### Description & characteristics
+
+Thin `fetch` wrapper: base URL + **static API key header**, JSON parse, throws `Error` on non-OK with server message.
+
+### Variables
+
+| Name | Description |
+|---|---|
+| `API_BASE_URL` | `VITE_API_BASE_URL` or `http://localhost:8787`. |
+| `API_KEY` | `VITE_API_KEY` or local static default. |
+
+### Methods (exports)
+
+| Export | What it does |
+|---|---|
+| `request(path, options)` (internal) | Shared fetch/error handling. |
+| `fetchEntries(filterId)` | `GET /api/entries?filter=…`. |
+| `scrapeNow()` | `GET /api/scrape`. |
+| `getSystemConfig()` | `GET /api/config`. |
+| `updateSystemConfig(payload)` | `PUT /api/config` with JSON body. |
+
+### Related objects list
+
+- `App`
+- `worker.js` HTTP API
+
+---
+
+## 19. `firebase.js` (frontend services)
+
+**File:** `frontend/src/services/firebase.js`
+
+### Relational diagram
+
+```
+initializeApp(firebaseConfig) ──► getFirestore ──► db
+        │
+        ├── subscribeUsageLogs(onLogs, onError) ── query usage_logs desc limit 50
+        └── subscribeEntriesCache(onEntries, onError) ── query entries_cache limit 1
+                    │ onSnapshot
+                    ▼
+                  App state (logs / cachedEntries)
+```
+
+| Related object | Relationship |
+|---|---|
+| `App` | Consumes both subscriptions on mount. |
+| Backend repositories | Write the same collections the frontend reads. |
+| Backend `firebaseConfig` | Same Firebase project credentials. |
+
+### Description & characteristics
+
+Firebase web SDK bootstrap + realtime subscription helpers returning unsubscribe functions.
+
+### Variables
+
+`firebaseConfig` (project credentials), `app`, `db`.
+
+### Methods
+
+| Export | What it does |
+|---|---|
+| `subscribeUsageLogs(onLogs, onError)` | `onSnapshot` on `usage_logs` ordered by `timestamp` desc, limit 50; maps docs to `{ id, ...data }`. |
+| `subscribeEntriesCache(onEntries, onError)` | `onSnapshot` on `entries_cache`; emits `entries` array from first doc (or `[]`). |
+| `db` | Exported Firestore instance. |
+
+### Related objects list
+
+- `App`
+- Backend `FirestoreRepository` / `FirestoreRestRepository` (same data)
+
+---
+
+# Cross-cutting data shapes
+
+## Entry (plain object — not a class)
+
+```js
+{ number: number, title: string, points: number, comments: number }
+```
+
+Produced by `HackerNewsScraper.parse`, consumed by strategies, Worker responses, `entries_cache`, and `ResultsTable`.
+
+## Usage log (plain object)
+
+```js
+{
+  timestamp: string,        // ISO 8601
+  filter_applied: string,   // filter id or scrape reason
+  results_count: number,
+  execution_type: 'MANUAL' | 'SCHEDULED',
+  execution_time_ms: number
+}
+```
+
+Written by repositories; read realtime by `subscribeUsageLogs` → `AuditLogsTable`.
+
+## System config (plain object)
+
+```js
+{ cron_enabled: boolean, cron_expression: string }
+```
+
+Read/updated via `/api/config` and `ScheduleConfig`.
+
+---
+
+*End of Objects Library.*

@@ -1,0 +1,662 @@
+# Installation Manual — Scropcombinator (Hacker News Scraper)
+
+Step-by-step guide to install, configure, run and deploy **backend** (Cloudflare Worker) and **frontend** (React + Vite), including Cloudflare **cron triggers**, **environment variables/secrets**, and production wiring.
+
+**Target audience:** developers installing the app for the first time on Windows, macOS or Linux.
+
+---
+
+## Table of contents
+
+1. [Prerequisites](#1-prerequisites)
+2. [Get the source code](#2-get-the-source-code)
+3. [Backend installation (Cloudflare Worker)](#3-backend-installation-cloudflare-worker)
+4. [Environment variables — local](#4-environment-variables--local)
+5. [Run backend locally](#5-run-backend-locally)
+6. [Frontend installation (React + Vite)](#6-frontend-installation-react--vite)
+7. [Environment variables — frontend](#7-environment-variables--frontend)
+8. [Run frontend locally](#8-run-frontend-locally)
+9. [Verify the local installation](#9-verify-the-local-installation)
+10. [Run automated tests](#10-run-automated-tests)
+11. [Deploy backend to Cloudflare (production)](#11-deploy-backend-to-cloudflare-production)
+12. [Cloudflare environment variables & secrets](#12-cloudflare-environment-variables--secrets)
+13. [Cloudflare cron triggers (scheduled jobs)](#13-cloudflare-cron-triggers-scheduled-jobs)
+14. [Deploy frontend to production](#14-deploy-frontend-to-production)
+15. [Post-install checklist](#15-post-install-checklist)
+16. [Troubleshooting](#16-troubleshooting)
+
+---
+
+## 1. Prerequisites
+
+| Tool | Version (recommended) | Purpose |
+|---|---|---|
+| **Node.js** | 20 LTS or later | Runtime for npm, Vite, Wrangler, Vitest |
+| **npm** | ships with Node | Package manager |
+| **Git** | any recent | Clone the repository |
+| **Cloudflare account** | Free tier is enough | Host the Worker + cron |
+| **Wrangler CLI** | installed as backend devDependency (`npx wrangler`) | Local dev & deploy |
+| Network access | — | `news.ycombinator.com`, `firestore.googleapis.com`, Cloudflare |
+
+Optional:
+
+- **Firebase console** access to project `test-2eb64` (or your own) if you change Firestore rules/config.
+- A terminal that supports long-running processes (or two separate terminals for backend + frontend).
+
+Check your toolchain:
+
+```bash
+node -v    # v20+
+npm -v
+git --version
+```
+
+---
+
+## 2. Get the source code
+
+```bash
+git clone https://github.com/ricardoalulema-lgtm/scropcombinator.git
+cd scropcombinator
+```
+
+Expected layout:
+
+```
+scropcombinator/
+├── backend/          # Cloudflare Worker + Vitest tests
+├── frontend/         # React + Vite UI
+├── README.md
+├── CHECKLIST.me
+├── ObjectsLibrary.me
+├── install.me        # this manual
+└── testresults.me
+```
+
+> **Note:** install and run **backend** and **frontend** in **two separate terminals** (or two windows).
+
+---
+
+## 3. Backend installation (Cloudflare Worker)
+
+Open a terminal in the **backend** folder:
+
+```bash
+cd backend
+npm install
+```
+
+What this installs:
+
+| Package | Role |
+|---|---|
+| `cheerio` | HTML parsing for the scraper |
+| `firebase` | Official SDK used by `FirestoreRepository` (Node/tests) |
+| `vitest` | Test runner (`npm test`) |
+| `wrangler` | Cloudflare Workers CLI (dev server, deploy, secrets, cron) |
+
+Verify Wrangler is available:
+
+```bash
+npx wrangler --version
+```
+
+### Project files you will configure
+
+| File | Purpose |
+|---|---|
+| `backend/src/worker.js` | Fetch router + scheduled (cron) handler |
+| `backend/wrangler.toml` | Worker name, entrypoint, **cron schedule**, **environment variables** |
+| `backend/src/config/firebaseConfig.js` | Firebase project credentials (defaults for REST repo) |
+
+---
+
+## 4. Environment variables — local
+
+### 4.1 Variables defined in `wrangler.toml` (local + deploy)
+
+Current file (example):
+
+```toml
+name = "hacker-news-scraper"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+
+[vars]
+API_KEY = "hn-scraper-7f3a9c2e1b8d4f6a-static"
+
+[triggers]
+crons = ["0 */2 * * *"]
+```
+
+| Variable | Required | Description |
+|---|---|---|
+| `API_KEY` | **Yes** | Static API key. Every HTTP request (except `OPTIONS`) must send `x-api-key: <API_KEY>` or `Authorization: Bearer <API_KEY>`. If missing at runtime the Worker returns **500** (fail-closed). |
+| `FIREBASE_PROJECT_ID` | No | Overrides Firebase project id. Default comes from `firebaseConfig.js` (`test-2eb64`). |
+| `FIREBASE_API_KEY` | No | Overrides Firebase web API key. Default from `firebaseConfig.js`. |
+
+**Local behavior:** Wrangler automatically loads `[vars]` from `wrangler.toml` when you run `npx wrangler dev`. You do **not** need a separate `.env` file for the basic local setup.
+
+### 4.2 Optional local secrets file (`.dev.vars`)
+
+For values you do not want in `wrangler.toml`, create `backend/.dev.vars` (git-ignored pattern recommended):
+
+```bash
+# backend/.dev.vars  (loaded only by wrangler dev, never deployed as file)
+API_KEY=your-local-secret-key
+FIREBASE_PROJECT_ID=test-2eb64
+FIREBASE_API_KEY=AIzaSy...your-key...
+```
+
+Then **match** the same `API_KEY` in the frontend (see §7).
+
+> `.dev.vars` is read by `wrangler dev` only. For production use Cloudflare dashboard/CLI secrets (§12).
+
+---
+
+## 5. Run backend locally
+
+```bash
+cd backend
+npx wrangler dev --port 8787
+```
+
+Expected console output (simplified):
+
+```
+⛅️ wrangler x.x.x
+Your Worker has access to the following bindings:
+  env.API_KEY ("hn-scraper-...")   Environment Variable   local
+⎔ Starting local server...
+wget http://127.0.0.1:8787
+```
+
+| Endpoint | Method | Auth | Purpose |
+|---|---|---|---|
+| `/` | GET | API key | Health / service info |
+| `/api/entries?filter=NO_FILTER` | GET | API key | Scrape + optional filter + audit |
+| `/api/entries?filter=MORE_THAN_5_WORDS_BY_COMMENTS` | GET | API key | Business filter 1 |
+| `/api/entries?filter=LESS_OR_EQUAL_5_WORDS_BY_POINTS` | GET | API key | Business filter 2 |
+| `/api/scrape` | GET | API key | Scrape + save to `entries_cache` |
+| `/api/config` | GET / PUT | API key | Read / update cron configuration |
+| `OPTIONS` | * | **None** | CORS preflight |
+
+**Stop the server:** `Ctrl+C` in that terminal.
+
+---
+
+## 6. Frontend installation (React + Vite)
+
+Open a **second** terminal:
+
+```bash
+cd frontend
+npm install
+```
+
+What this installs:
+
+| Package | Role |
+|---|---|
+| `react`, `react-dom` | UI library |
+| `firebase` | Realtime listeners (`onSnapshot`) for logs & entries cache |
+| `vite`, `@vitejs/plugin-react` | Dev server and production bundler |
+| `oxlint` | Linter (`npm run lint`) |
+
+Scripts available:
+
+| Command | Action |
+|---|---|
+| `npm run dev` | Start Vite dev server (default **http://localhost:5173**) |
+| `npm run build` | Production build → `frontend/dist/` |
+| `npm run preview` | Serve the production build locally |
+| `npm run lint` | Run oxlint |
+
+---
+
+## 7. Environment variables — frontend
+
+Vite exposes variables prefixed with `VITE_` to the browser bundle.
+
+Create **`frontend/.env.local`** (recommended; not committed):
+
+```bash
+# frontend/.env.local
+VITE_API_BASE_URL=http://localhost:8787
+VITE_API_KEY=hn-scraper-7f3a9c2e1b8d4f6a-static
+```
+
+| Variable | Required | Description |
+|---|---|---|
+| `VITE_API_BASE_URL` | Prod: **Yes** / Local: optional | Base URL of the Worker API. Default in code: `http://localhost:8787`. |
+| `VITE_API_KEY` | **Yes** | Must equal the Worker’s `API_KEY`. Default in code matches the sample `wrangler.toml` value. |
+
+**Rules:**
+
+1. After changing `.env.local`, **restart** `npm run dev` (Vite does not hot-reload env files).
+2. Anything starting with `VITE_` is **public** in the browser bundle — treat `VITE_API_KEY` as a low-sensitivity shared secret for this demo; for a public production product use a tighter auth design (session/JWT).
+3. For production builds, set the env vars **before** `npm run build`.
+
+Example PowerShell:
+
+```powershell
+$env:VITE_API_BASE_URL="https://hacker-news-scraper.<account>.workers.dev"
+$env:VITE_API_KEY="hn-scraper-7f3a9c2e1b8d4f6a-static"
+npm run build
+```
+
+Example bash/zsh:
+
+```bash
+export VITE_API_BASE_URL="https://hacker-news-scraper.<account>.workers.dev"
+export VITE_API_KEY="hn-scraper-7f3a9c2e1b8d4f6a-static"
+npm run build
+```
+
+---
+
+## 8. Run frontend locally
+
+With the **backend already running** on port 8787:
+
+```bash
+cd frontend
+npm run dev
+```
+
+Open **http://localhost:5173** in your browser.
+
+UI map:
+
+| Area | Where |
+|---|---|
+| Filter chips + actions | Top card (All entries / > 5 words / ≤ 5 words) |
+| Results table | Main panel (fills from `entries_cache` realtime) |
+| Audit logs | Menu button **Logs** → modal |
+| Manual vs Scheduled cron | Menu button **Execution** → modal |
+
+**Stop:** `Ctrl+C` in the frontend terminal.
+
+---
+
+## 9. Verify the local installation
+
+### 9.1 Worker health (API key required)
+
+PowerShell:
+
+```powershell
+Invoke-WebRequest -Uri "http://localhost:8787/" `
+  -Headers @{ "x-api-key" = "hn-scraper-7f3a9c2e1b8d4f6a-static" } `
+  -UseBasicParsing
+```
+
+curl:
+
+```bash
+curl -H "x-api-key: hn-scraper-7f3a9c2e1b8d4f6a-static" http://localhost:8787/
+```
+
+Expect JSON: `"status": "ok"`.
+
+### 9.2 Unauthenticated request must fail
+
+```bash
+curl -i http://localhost:8787/api/config
+```
+
+Expect **HTTP 401** with `Unauthorized: missing or invalid API key`.
+
+### 9.3 Scrape + filter
+
+```bash
+curl -H "x-api-key: hn-scraper-7f3a9c2e1b8d4f6a-static" \
+  "http://localhost:8787/api/entries?filter=NO_FILTER"
+```
+
+Expect `"results_count": 30`.
+
+### 9.4 Frontend
+
+1. http://localhost:5173 loads without console errors.
+2. **Audit logs** modal eventually shows rows (Firestore realtime).
+3. **Load all** / **Apply filter** returns a table of results.
+4. Wrong API key in `.env.local` → red error banner (`Unauthorized…`).
+
+---
+
+## 10. Run automated tests
+
+### Backend (Vitest)
+
+```bash
+cd backend
+npm test
+```
+
+Variants:
+
+```bash
+npm run test:watch
+npm run test:firestore      # real Firestore integration
+npm run test:web            # real news.ycombinator.com smoke test
+npx vitest run tests/worker.test.js --reporter=verbose
+```
+
+> Integration tests write to the real Firebase project and hit the live HN site — network required.
+
+### Frontend
+
+```bash
+cd frontend
+npm run lint
+npm run build
+```
+
+Both must succeed before considering the install healthy.
+
+---
+
+## 11. Deploy backend to Cloudflare (production)
+
+### 11.1 Log in to Cloudflare
+
+```bash
+cd backend
+npx wrangler login
+```
+
+A browser window opens; authorize the CLI.
+
+### 11.2 Confirm `wrangler.toml` before deploy
+
+- `name` — Worker subdomain name (e.g. `hacker-news-scraper` → `hacker-news-scraper.<account>.workers.dev`).
+- `main = "src/worker.js"` — entry file.
+- `[triggers] crons` — schedule (see §13).
+- `[vars] API_KEY` — **do not** leave a weak key in production; prefer a secret (§12).
+
+### 11.3 Deploy
+
+```bash
+npx wrangler deploy
+```
+
+Wrangler prints the **production URL**, e.g.:
+
+```
+Deployed hacker-news-scraper triggers (cron)
+  https://hacker-news-scraper.<account>.workers.dev
+```
+
+Record this URL — it becomes `VITE_API_BASE_URL` for the frontend.
+
+### 11.4 Redeploy after code changes
+
+```bash
+npx wrangler deploy
+```
+
+Cron schedules defined in `wrangler.toml` are updated automatically on deploy.
+
+---
+
+## 12. Cloudflare environment variables & secrets
+
+Use two mechanisms:
+
+| Mechanism | Use for | Visible in git? | Scope |
+|---|---|---|---|
+| `[vars]` in `wrangler.toml` | Non-sensitive config | Yes | Deployed with the Worker |
+| **Secrets** (`wrangler secret`) | `API_KEY`, Firebase keys, anything sensitive | **No** | Encrypted per Worker/environment |
+
+### 12.1 Create secrets with Wrangler (recommended)
+
+```bash
+cd backend
+
+# Static API key used by the router (required)
+npx wrangler secret put API_KEY
+# paste: <your-strong-random-key>
+
+# Optional overrides (if you do not rely on firebaseConfig.js defaults)
+npx wrangler secret put FIREBASE_PROJECT_ID
+npx wrangler secret put FIREBASE_API_KEY
+```
+
+List and delete:
+
+```bash
+npx wrangler secret list
+npx wrangler secret delete API_KEY
+```
+
+> Secrets **override** `[vars]` of the same name at runtime. After `secret put`, you do not need to redeploy for the secret to apply (binding is runtime); still redeploy if you changed code.
+
+### 12.2 Create variables with the Cloudflare Dashboard
+
+1. Log in → **Workers & Pages** → select **`hacker-news-scraper`**.
+2. **Settings** → **Variables and Secrets** (or *Bindings* → *Environment Variables*).
+3. Under **Production** (or `wrangler.toml` environment):
+   - **Add** → type **Secret** → Name `API_KEY` → paste value → Save.
+   - Or **Text** variable for non-sensitive values (e.g. `LOG_LEVEL`).
+4. Repeat for preview/dev environments if you use them.
+5. Redeploy is not required for secrets; hard-refresh clients if the key changed.
+
+### 12.3 CLI alternative (dashboard-equivalent)
+
+```bash
+echo "my-production-key" | npx wrangler secret put API_KEY
+```
+
+### 12.4 Keep frontend and Worker in sync
+
+After changing the production key:
+
+1. Update Worker secret (`API_KEY`).
+2. Rebuild frontend with matching `VITE_API_KEY`.
+3. Redeploy/publish the frontend.
+
+Mismatch symptoms: frontend banners with `401 Unauthorized`.
+
+---
+
+## 13. Cloudflare cron triggers (scheduled jobs)
+
+The scheduled handler lives in `worker.js` → `scheduled()` → `handleScheduled()`:
+
+1. Reads `system_config` (`cron_enabled`, `cron_expression`).
+2. If `cron_enabled` is **false**, skips work.
+3. Otherwise scrapes HN, saves `entries_cache`, writes an audit log with `execution_type: "SCHEDULED"`.
+
+### 13.1 Define the cron in `wrangler.toml`
+
+```toml
+[triggers]
+crons = ["0 */2 * * *"]
+```
+
+| Expression | Meaning |
+|---|---|
+| `0 */2 * * *` | At minute 0 of every 2nd hour (UTC) — matches the default “every 2 hours” |
+| `0 */1 * * *` | Every hour |
+| `0 6 * * *` | Daily at 06:00 UTC |
+
+Multiple schedules:
+
+```toml
+[triggers]
+crons = ["0 */2 * * *", "0 9 * * 1-5"]
+```
+
+> Cloudflare evaluates cron in **UTC**.
+
+### 13.2 Install / update the cron on Cloudflare
+
+Crons are **not** a separate manual install step: they ship with `wrangler deploy`.
+
+```bash
+cd backend
+npx wrangler deploy
+```
+
+Confirm in the dashboard:
+
+1. **Workers & Pages** → **`hacker-news-scraper`** → **Settings** → **Triggers** (Cron Triggers).
+2. You should see `0 */2 * * *` under production triggers.
+3. **Logs** / **Observability** → filter `scheduled` to see executions.
+
+Or via CLI:
+
+```bash
+npx wrangler triggers   # where supported by your wrangler version
+# or inspect the deployed config in the dashboard Triggers tab
+```
+
+### 13.3 Enable/disable at runtime (`cron_enabled`)
+
+The cron expression is deployed infrastructure config; the **runtime switch** is Firestore `system_config/global`:
+
+| Field | Effect |
+|---|---|
+| `cron_enabled: true` | Scheduled handler performs scrape + save + audit |
+| `cron_enabled: false` | Handler logs `skipped: cron_enabled is false` and exits |
+
+Change it from the **UI** (Execution modal → Scheduled → Save) or via API:
+
+```bash
+curl -X PUT http://localhost:8787/api/config \
+  -H "x-api-key: hn-scraper-7f3a9c2e1b8d4f6a-static" \
+  -H "content-type: application/json" \
+  -d '{"cron_enabled": true, "cron_expression": "0 */2 * * *"}'
+```
+
+> Keep `cron_expression` in Firestore aligned with (or as a human label for) the `wrangler.toml` value; the audit reason string is derived from the stored expression (`each 2 h`).
+
+### 13.4 Test cron locally
+
+Local `wrangler dev` does **not** fire crons automatically. Trigger manually:
+
+```bash
+curl "http://127.0.0.1:8787/cdn-cgi/local/scheduled"
+```
+
+You should see a `[scheduled] { ... }` log object in the Wrangler terminal when `cron_enabled` is true.
+
+### 13.5 Test cron in production
+
+Use the dashboard: **Triggers** → **Cron** → **Test** (or wait for the next window). Also confirm a new `usage_logs` document with `execution_type: "SCHEDULED"`.
+
+---
+
+## 14. Deploy frontend to production
+
+Any static host works (Cloudflare Pages, Netlify, Vercel, S3…). Example with **Cloudflare Pages**:
+
+```bash
+cd frontend
+
+# 1) Set production env (use the deployed Worker URL + matching API key)
+export VITE_API_BASE_URL="https://hacker-news-scraper.<account>.workers.dev"
+export VITE_API_KEY="hn-scraper-7f3a9c2e1b8d4f6a-static"
+
+# 2) Lint + build
+npm run lint
+npm run build          # outputs dist/
+
+# 3) Deploy dist/ (Pages Git integration or wrangler pages)
+npx wrangler pages deploy dist --project-name=scropcombinator-frontend
+```
+
+Dashboard alternative:
+
+1. **Workers & Pages** → **Create** → **Pages** → upload/`dist` or connect Git.
+2. Build command: `npm run build` · Output directory: `dist`.
+3. Define Environment variables `VITE_API_BASE_URL` and `VITE_API_KEY` in Pages **Settings → Environment variables** (Production + Preview) **before** build.
+
+CORS: the Worker already returns `access-control-allow-origin: *`, so the Pages domain can call the API.
+
+---
+
+## 15. Post-install checklist
+
+- [ ] `node -v` ≥ 20
+- [ ] Repo cloned; `backend/npm install` and `frontend/npm install` completed
+- [ ] `npx wrangler --version` works inside `backend/`
+- [ ] `API_KEY` present (wrangler.toml or `.dev.vars` or secret)
+- [ ] Backend: `npx wrangler dev --port 8787` → health JSON with API key
+- [ ] Backend: request without key → 401
+- [ ] Frontend: `.env.local` points to local Worker + same key
+- [ ] Frontend: `npm run dev` → http://localhost:5173 works
+- [ ] `cd backend && npm test` green
+- [ ] `cd frontend && npm run lint && npm run build` green
+- [ ] (Prod) `npx wrangler login` + `npx wrangler deploy`
+- [ ] (Prod) `npx wrangler secret put API_KEY` with strong key
+- [ ] (Prod) Dashboard → Triggers shows cron `0 */2 * * *`
+- [ ] (Prod) `system_config.cron_enabled = true` if you want scheduled scrapes
+- [ ] (Prod) Frontend rebuilt with production `VITE_API_BASE_URL` / `VITE_API_KEY`
+
+---
+
+## 16. Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `ERR_CONNECTION_REFUSED` on `:8787` | Wrangler not running / crashed | Restart `npx wrangler dev --port 8787`; check for startup TypeError |
+| Worker fails: *Incorrect type for map entry …* | A non-handler **named export** in `worker.js` | Export only handlers; keep constants local (e.g. `NO_FILTER`) |
+| HTTP **500** `API key is not configured` | `API_KEY` missing in env/vars/secrets | Add `[vars]` or `wrangler secret put API_KEY` |
+| HTTP **401** from UI | Frontend key ≠ Worker key | Align `VITE_API_KEY` with `API_KEY`; restart Vite / rebuild |
+| UI loads but logs empty | Firestore rules block read, or no data yet | Allow read for `usage_logs` in rules; trigger a filter run |
+| Scrape 500 from Worker | Outbound fetch to HN failed | Check network/URL; inspect Worker logs |
+| Cron never runs in prod | Trigger not deployed or `cron_enabled` false | Redeploy; set `cron_enabled: true` |
+| Cron does not run in `wrangler dev` | Expected — local crons are manual | `curl http://127.0.0.1:8787/cdn-cgi/local/scheduled` |
+| Env changes ignored | Vite caches env at process start | Restart `npm run dev` / rebuild |
+| Firebase SDK errors inside Worker | SDK unsupported on Workers | Runtime uses `FirestoreRestRepository` (REST) — expected on CF |
+
+### Useful log commands
+
+```bash
+# Live Worker logs (production)
+npx wrangler tail
+
+# Local logs are printed in the wrangler dev terminal
+```
+
+---
+
+## Quick reference — full local session
+
+```bash
+# Terminal 1 — backend
+cd scropcombinator/backend
+npm install
+npx wrangler dev --port 8787
+
+# Terminal 2 — frontend
+cd scropcombinator/frontend
+npm install
+npm run dev
+# → http://localhost:5173
+
+# Terminal 3 — tests (optional)
+cd scropcombinator/backend && npm test
+cd scropcombinator/frontend && npm run lint && npm run build
+```
+
+## Quick reference — production
+
+```bash
+cd backend
+npx wrangler login
+npx wrangler secret put API_KEY
+npx wrangler deploy
+# Dashboard → Triggers → confirm cron; set cron_enabled if needed
+
+cd ../frontend
+# set VITE_API_BASE_URL + VITE_API_KEY
+npm run build
+# publish dist/ (e.g. Cloudflare Pages)
+```
+
+---
+
+*End of installation manual.*

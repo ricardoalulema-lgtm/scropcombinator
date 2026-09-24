@@ -106,7 +106,12 @@ Plaintext
 │   │   │       ├── MoreThanFiveWordsStrategy.js
 │   │   │       └── LessOrEqualFiveWordsStrategy.js
 │   │   ├── /repositories
-│   │   │   └── FirestoreRepository.js
+│   │   │   ├── BaseRepository.js
+│   │   │   ├── FirestoreRepository.js
+│   │   │   └── FirestoreRestRepository.js
+│   │   ├── /config
+│   │   │   ├── firebaseConfig.js
+│   │   │   └── firebase.js
 │   │   └── worker.js
 │   ├── /tests
 │   │   ├── WordCounter.test.js
@@ -118,6 +123,8 @@ Plaintext
 └── /frontend
     ├── /src
     │   ├── /components
+    │   │   ├── TopBar.jsx
+    │   │   ├── Modal.jsx
     │   │   ├── FilterControls.jsx
     │   │   ├── ResultsTable.jsx
     │   │   ├── AuditLogsTable.jsx
@@ -181,10 +188,31 @@ Componente de logs en tiempo real conectado a Firestore via onSnapshot.
 
 Selector de modo de ejecución (Manual vs. Frecuencia programada).
 
-PASO 6: Documentación Final y Control de Versiones
+PASO 6: Mejora de UI asistida por IA (Fase de afinamiento)
+Objetivo: Rediseñar la interfaz para que sea muy amigable con el usuario, con acceso a todo en un solo lugar y la lista de Results como bloque principal de la aplicación.
+
+Entregables:
+
+Menú superior (TopBar) con botones que despliegan en modales: Execution (Manual vs. Frecuencia programada) y Logs de auditoría (tabla realtime vía onSnapshot).
+
+Inputs de filtro y tipo de ejecución amigables: chips tipo radio para los filtros (incluyendo la opción NO_FILTER / All entries por defecto) y segmentado Manual/Scheduled con selector de frecuencia.
+
+Lista de Results como parte principal de la aplicación: layout jerarquizado, stats (entries, ms), tabla con scroll y sticky header.
+
+Resultados visibles por defecto sin filtros: suscripción realtime a entries_cache y opción NO_FILTER en el Worker.
+
+Acceso unificado: logs y configuración de ejecución no ocupan espacio fijo; se abren desde el menú superior sin salir de la misma pantalla.
+
+Validación: oxlint en 0 errores y vite build exitoso.
+
+PASO 7: Documentación Final y Control de Versiones
 Objetivo: Preparar el repositorio para evaluación.
 Entregables:
 
 Historial de commits ordenados e incrementales.
 
 README.md con explicación de arquitectura, comandos de ejecución y decisiones de diseño.
+
+CHECKLIST.me con el estado de todos los requerimientos y observaciones (p. ej. API key estática en el router de worker.js).
+
+ObjectsLibrary.me con el catálogo de objetos frontend/backend (diagrama relacional, variables, constructores y métodos).
