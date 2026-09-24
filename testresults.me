@@ -375,3 +375,50 @@ SCHEDULED flow -> {
    Duration  5.13s (tests 84%, import 14%, transform 2%)
 
 
+
+step 4
+
+ RUN  v5.0.1 C:/Users/SUPERTRONICA/Documents/Proyectos/scropcombinator/backend
+
+stdout | tests/worker.test.js > worker - scheduled handler > scrapes, saves entries and audits as SCHEDULED with reason "(each 2 h)"
+[scheduled] {
+  skipped: false,
+  entries_count: 3,
+  execution_time_ms: 0,
+  log_id: 'log-1',
+  filter_applied: 'Scraping and save entries (each 2 h)'
+}
+
+stdout | tests/worker.test.js > worker - scheduled handler > describes hourly cron expressions as "each N h"
+[scheduled] {
+  skipped: false,
+  entries_count: 3,
+  execution_time_ms: 0,
+  log_id: 'log-1',
+  filter_applied: 'Scraping and save entries (each 6 h)'
+}
+
+stdout | tests/worker.test.js > worker - scheduled handler > skips the execution when cron_enabled is false
+[scheduled] skipped: cron_enabled is false
+
+ Ô£ô tests/worker.test.js > worker - fetch handler > returns service info on GET / 11ms
+ Ô£ô tests/worker.test.js > worker - fetch handler > answers OPTIONS with CORS headers 1ms
+ Ô£ô tests/worker.test.js > worker - fetch handler > rejects an unknown filter with 400 and the valid filter list 2ms
+ Ô£ô tests/worker.test.js > worker - fetch handler > runs MORE_THAN_5_WORDS_BY_COMMENTS: scrapes, filters, sorts by comments and audits as MANUAL 4ms
+ Ô£ô tests/worker.test.js > worker - fetch handler > runs LESS_OR_EQUAL_5_WORDS_BY_POINTS: filters and sorts by points desc 2ms
+ Ô£ô tests/worker.test.js > worker - fetch handler > scrapes and saves entries on GET /api/scrape with reason "(manual)" 1ms
+ Ô£ô tests/worker.test.js > worker - fetch handler > returns the system config on GET /api/config 1ms
+ Ô£ô tests/worker.test.js > worker - fetch handler > updates the system config on PUT /api/config 1ms
+ Ô£ô tests/worker.test.js > worker - fetch handler > rejects an invalid JSON body on PUT /api/config with 400 1ms
+ Ô£ô tests/worker.test.js > worker - fetch handler > returns 404 for unknown routes 1ms
+ Ô£ô tests/worker.test.js > worker - fetch handler > returns 500 with the error message when a service fails 1ms
+ Ô£ô tests/worker.test.js > worker - scheduled handler > scrapes, saves entries and audits as SCHEDULED with reason "(each 2 h)" 2ms
+ Ô£ô tests/worker.test.js > worker - scheduled handler > describes hourly cron expressions as "each N h" 1ms
+ Ô£ô tests/worker.test.js > worker - scheduled handler > skips the execution when cron_enabled is false 1ms
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  19:24:57
+   Duration  1.13s (import 74%, transform 20%, tests 4%, worker 1%)
+
+
