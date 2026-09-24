@@ -446,7 +446,7 @@ Historical results per step are recorded in `testresults.me`.
 
 ### UI functional improvements
 
-Enhancements added during the UI refinement phase that are **not** part of the original spec in `Requirements.me`:
+Enhancements added during the UI refinement phase that are **not** part of the original spec in `Requirements.md`:
 
 - **Sort by Points / Comments** — clickable `Points` and `Comments` table headers sort the visible results descending (toggle on/off) entirely on the client, with no refetch.
 - **Text filter on titles** — case-insensitive search box above the table that narrows the current view instantly (client-side only, no audit entry, so exploratory searching does not pollute the logs).
