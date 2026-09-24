@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { handleFetch, handleScheduled } from '../src/worker.js';
 import { WordCounter } from '../src/services/WordCounter.js';
 import { MoreThanFiveWordsStrategy } from '../src/services/strategies/MoreThanFiveWordsStrategy.js';
@@ -22,7 +22,14 @@ const entriesFixture = [
   }
 ];
 
-const buildServices = (config = { cron_enabled: true, cron_expression: '0 */2 * * *' }) => {
+const buildServices = (
+  config = {
+    cron_enabled: true,
+    cron_expression: '0 */2 * * *',
+    frequency_hours: 2,
+    last_run_hour: null
+  }
+) => {
   const wordCounter = new WordCounter();
 
   return {
@@ -122,7 +129,9 @@ describe('worker - fetch handler', () => {
     expect(response.status).toBe(200);
     expect(body).toEqual({
       cron_enabled: true,
-      cron_expression: '0 */2 * * *'
+      cron_expression: '0 */2 * * *',
+      frequency_hours: 2,
+      last_run_hour: null
     });
   });
 
@@ -270,30 +279,43 @@ describe('worker - fetch handler', () => {
     expect(response.status).toBe(200);
     expect(body).toEqual({
       cron_enabled: true,
-      cron_expression: '0 */2 * * *'
+      cron_expression: '0 */2 * * *',
+      frequency_hours: 2,
+      last_run_hour: null
     });
   });
 
-  it('updates the system config on PUT /api/config', async () => {
+  it('updates the system config on PUT /api/config and anchors last_run_hour', async () => {
     const services = buildServices();
-    const response = await handleFetch(
-      new Request('http://localhost/api/config', {
-        method: 'PUT',
-        headers: authHeaders({ 'content-type': 'application/json' }),
-        body: JSON.stringify({ cron_enabled: false })
-      }),
-      services
-    );
-    const body = await response.json();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-24T15:30:00.000Z'));
 
-    expect(response.status).toBe(200);
-    expect(services.repository.updateSystemConfig).toHaveBeenCalledWith({
-      cron_enabled: false
-    });
-    expect(body).toEqual({
-      cron_enabled: false,
-      cron_expression: '0 */2 * * *'
-    });
+    try {
+      const response = await handleFetch(
+        new Request('http://localhost/api/config', {
+          method: 'PUT',
+          headers: authHeaders({ 'content-type': 'application/json' }),
+          body: JSON.stringify({ cron_enabled: false, frequency_hours: 4 })
+        }),
+        services
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(services.repository.updateSystemConfig).toHaveBeenCalledWith({
+        cron_enabled: false,
+        frequency_hours: 4,
+        last_run_hour: '2026-09-24T15'
+      });
+      expect(body).toEqual({
+        cron_enabled: false,
+        frequency_hours: 4,
+        cron_expression: '0 */2 * * *',
+        last_run_hour: '2026-09-24T15'
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('rejects an invalid JSON body on PUT /api/config with 400', async () => {
@@ -430,16 +452,30 @@ describe('worker - fetch handler', () => {
 });
 
 describe('worker - scheduled handler', () => {
-  it('scrapes, saves entries and audits as SCHEDULED with reason "(each 2 h)"', async () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-24T15:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('runs on first execution (no last_run_hour) and audits as "(each 2 h)"', async () => {
     const services = buildServices({
       cron_enabled: true,
-      cron_expression: '0 */2 * * *'
+      cron_expression: '0 */2 * * *',
+      frequency_hours: 2,
+      last_run_hour: null
     });
 
     const result = await handleScheduled(services);
 
     expect(services.scraper.scrape).toHaveBeenCalledTimes(1);
     expect(services.repository.saveEntries).toHaveBeenCalledWith(entriesFixture);
+    expect(services.repository.updateSystemConfig).toHaveBeenCalledWith({
+      last_run_hour: '2026-09-24T15'
+    });
     expect(services.repository.saveUsageLog).toHaveBeenCalledWith(
       expect.objectContaining({
         filter_applied: 'Scraping and save entries (each 2 h)',
@@ -453,14 +489,69 @@ describe('worker - scheduled handler', () => {
       entries_count: 3,
       execution_time_ms: expect.any(Number),
       log_id: 'log-1',
-      filter_applied: 'Scraping and save entries (each 2 h)'
+      filter_applied: 'Scraping and save entries (each 2 h)',
+      last_run_hour: '2026-09-24T15'
     });
   });
 
-  it('describes hourly cron expressions as "each N h"', async () => {
+  it('skips when frequency_hours have not elapsed since last_run_hour', async () => {
     const services = buildServices({
       cron_enabled: true,
-      cron_expression: '0 */6 * * *'
+      frequency_hours: 2,
+      last_run_hour: '2026-09-24T14'
+    });
+
+    const result = await handleScheduled(services);
+
+    expect(result).toEqual({
+      skipped: true,
+      reason: 'frequency_not_reached',
+      frequency_hours: 2,
+      last_run_hour: '2026-09-24T14',
+      current_hour: '2026-09-24T15'
+    });
+    expect(services.scraper.scrape).not.toHaveBeenCalled();
+    expect(services.repository.saveUsageLog).not.toHaveBeenCalled();
+  });
+
+  it('runs when frequency_hours have elapsed since last_run_hour', async () => {
+    const services = buildServices({
+      cron_enabled: true,
+      frequency_hours: 2,
+      last_run_hour: '2026-09-24T13'
+    });
+
+    const result = await handleScheduled(services);
+
+    expect(result.skipped).toBe(false);
+    expect(services.scraper.scrape).toHaveBeenCalledTimes(1);
+    expect(services.repository.updateSystemConfig).toHaveBeenCalledWith({
+      last_run_hour: '2026-09-24T15'
+    });
+  });
+
+  it('runs across midnight when frequency_hours have elapsed', async () => {
+    vi.setSystemTime(new Date('2026-09-25T01:00:00.000Z'));
+    const services = buildServices({
+      cron_enabled: true,
+      frequency_hours: 2,
+      last_run_hour: '2026-09-24T23'
+    });
+
+    const result = await handleScheduled(services);
+
+    expect(result.skipped).toBe(false);
+    expect(services.repository.updateSystemConfig).toHaveBeenCalledWith({
+      last_run_hour: '2026-09-25T01'
+    });
+  });
+
+  it('uses frequency_hours for the audit label', async () => {
+    const services = buildServices({
+      cron_enabled: true,
+      cron_expression: '0 */6 * * *',
+      frequency_hours: 6,
+      last_run_hour: null
     });
 
     const result = await handleScheduled(services);
@@ -471,7 +562,9 @@ describe('worker - scheduled handler', () => {
   it('skips the execution when cron_enabled is false', async () => {
     const services = buildServices({
       cron_enabled: false,
-      cron_expression: '0 */2 * * *'
+      cron_expression: '0 */2 * * *',
+      frequency_hours: 2,
+      last_run_hour: null
     });
 
     const result = await handleScheduled(services);

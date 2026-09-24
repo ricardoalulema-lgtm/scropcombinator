@@ -6,4 +6,4 @@ compatibility_date = "2026-09-01"
 API_KEY = "hn-scraper-7f3a9c2e1b8d4f6a-static"
 
 [triggers]
-crons = ["0 */2 * * *"]
+crons = ["0 * * * *"]

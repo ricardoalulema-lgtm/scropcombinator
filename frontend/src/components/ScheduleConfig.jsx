@@ -10,13 +10,14 @@ export const ScheduleConfig = ({ config, mode, onModeChange, onFrequencyChange }
     return <p className="empty">Loading configuration…</p>;
   }
 
-  const frequencyHours = hoursFromCron(config.cron_expression);
+  const frequencyHours =
+    Number(config.frequency_hours) || hoursFromCron(config.cron_expression);
 
   return (
     <div className="schedule-config">
       <p className="schedule-intro">
-        Choose how the top 30 entries are fetched. Manual runs from this UI; Scheduled runs on the
-        Cloudflare cron trigger.
+        Choose how the top 30 entries are fetched. Manual runs from this UI; Scheduled runs when the
+        hourly Cloudflare trigger sees the frequency elapsed in Firestore.
       </p>
 
       <div className="mode-toggle" role="radiogroup" aria-label="Execution mode">
@@ -60,7 +61,8 @@ export const ScheduleConfig = ({ config, mode, onModeChange, onFrequencyChange }
 
       <div className="schedule-meta">
         <code>
-          {config.cron_enabled ? 'enabled' : 'disabled'} · {config.cron_expression}
+          {config.cron_enabled ? 'enabled' : 'disabled'} · every {frequencyHours}h
+          {config.last_run_hour ? ` · last run ${config.last_run_hour}` : ''}
         </code>
       </div>
     </div>

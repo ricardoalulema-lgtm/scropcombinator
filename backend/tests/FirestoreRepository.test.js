@@ -202,7 +202,9 @@ describe('FirestoreRepository', () => {
       expect(doc).toHaveBeenCalledWith(fakeDb, 'system_config', 'global');
       expect(config).toEqual({
         cron_enabled: true,
-        cron_expression: '0 */15 * * * *'
+        cron_expression: '0 */15 * * * *',
+        frequency_hours: 6,
+        last_run_hour: null
       });
     });
 
@@ -214,7 +216,9 @@ describe('FirestoreRepository', () => {
       expect(config).toEqual(DEFAULT_SYSTEM_CONFIG);
       expect(config).toEqual({
         cron_enabled: false,
-        cron_expression: '0 */6 * * *'
+        cron_expression: '0 */6 * * *',
+        frequency_hours: 6,
+        last_run_hour: null
       });
     });
 
@@ -228,7 +232,9 @@ describe('FirestoreRepository', () => {
 
       expect(config).toEqual({
         cron_enabled: true,
-        cron_expression: DEFAULT_SYSTEM_CONFIG.cron_expression
+        cron_expression: DEFAULT_SYSTEM_CONFIG.cron_expression,
+        frequency_hours: DEFAULT_SYSTEM_CONFIG.frequency_hours,
+        last_run_hour: null
       });
     });
   });
@@ -255,7 +261,9 @@ describe('FirestoreRepository', () => {
 
       expect(config).toEqual({
         cron_enabled: true,
-        cron_expression: '0 */1 * * *'
+        cron_expression: '0 */1 * * *',
+        frequency_hours: 6,
+        last_run_hour: null
       });
     });
 

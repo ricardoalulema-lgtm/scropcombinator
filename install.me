@@ -126,8 +126,10 @@ compatibility_date = "2026-09-01"
 API_KEY = "hn-scraper-7f3a9c2e1b8d4f6a-static"
 
 [triggers]
-crons = ["0 */2 * * *"]
+crons = ["0 * * * *"]
 ```
+
+> **Cron note:** the trigger is a **fixed hourly wake** (`0 * * * *`). The real scrape frequency is chosen in the **UI** and stored in Firestore (`frequency_hours` + `last_run_hour`) — see [§13](#13-cloudflare-cron-triggers-scheduled-jobs).
 
 | Variable | Required | Description |
 |---|---|---|
@@ -462,33 +464,32 @@ Mismatch symptoms: frontend banners with `401 Unauthorized`.
 
 ## 13. Cloudflare cron triggers (scheduled jobs)
 
+**Design:** Cloudflare only provides a **fixed hourly wake**; **Firestore decides** whether to scrape.
+
 The scheduled handler lives in `worker.js` → `scheduled()` → `handleScheduled()`:
 
-1. Reads `system_config` (`cron_enabled`, `cron_expression`).
-2. If `cron_enabled` is **false**, skips work.
-3. Otherwise scrapes HN, saves `entries_cache`, writes an audit log with `execution_type: "SCHEDULED"`.
+1. Reads `system_config` (`cron_enabled`, `frequency_hours`, `last_run_hour`).
+2. If `cron_enabled` is **false** → skip.
+3. If `last_run_hour` is empty → **scrape** (first run).
+4. Else if `current_hour − last_run_hour ≥ frequency_hours` → **scrape**, save `last_run_hour = current hour`, audit `SCHEDULED`.
+5. Otherwise → skip (`reason: frequency_not_reached`).
 
-### 13.1 Define the cron in `wrangler.toml`
+`PUT /api/config` (saving the Execution modal) also anchors `last_run_hour` to the current hour (no minutes), e.g. `2026-09-24T15`.
+
+### 13.1 Define the base cron in `wrangler.toml`
 
 ```toml
 [triggers]
-crons = ["0 */2 * * *"]
+crons = ["0 * * * *"]
 ```
 
 | Expression | Meaning |
 |---|---|
-| `0 */2 * * *` | At minute 0 of every 2nd hour (UTC) — matches the default “every 2 hours” |
-| `0 */1 * * *` | Every hour |
-| `0 6 * * *` | Daily at 06:00 UTC |
+| `0 * * * *` | At minute 0 of **every hour** (UTC) — fixed base wake, 24/day |
+| `0 */2 * * *` | Every 2nd hour (not used; frequency comes from Firestore) |
+| `*/15 * * * *` | Every 15 min (not needed for this design) |
 
-Multiple schedules:
-
-```toml
-[triggers]
-crons = ["0 */2 * * *", "0 9 * * 1-5"]
-```
-
-> Cloudflare evaluates cron in **UTC**.
+> Cloudflare evaluates cron in **UTC**. Hour keys in Firestore (`last_run_hour`) are also **UTC**.
 
 ### 13.2 Install / update the cron on Cloudflare
 
@@ -502,35 +503,30 @@ npx wrangler deploy
 Confirm in the dashboard:
 
 1. **Workers & Pages** → **`hacker-news-scraper`** → **Settings** → **Triggers** (Cron Triggers).
-2. You should see `0 */2 * * *` under production triggers.
-3. **Logs** / **Observability** → filter `scheduled` to see executions.
+2. You should see `0 * * * *` under production triggers.
+3. **Logs** / **Observability** → filter `scheduled` to see executions (runs or `frequency_not_reached` skips).
 
-Or via CLI:
+### 13.3 Choose the frequency in the UI (Firestore runtime)
 
-```bash
-npx wrangler triggers   # where supported by your wrangler version
-# or inspect the deployed config in the dashboard Triggers tab
-```
-
-### 13.3 Enable/disable at runtime (`cron_enabled`)
-
-The cron expression is deployed infrastructure config; the **runtime switch** is Firestore `system_config/global`:
+Firestore `system_config/global` fields:
 
 | Field | Effect |
 |---|---|
-| `cron_enabled: true` | Scheduled handler performs scrape + save + audit |
+| `frequency_hours` | Scrape every N hours (UI options: 1, 2, 3, 4, 6, 8, 12, 24) |
+| `cron_enabled: true` | Scheduled handler allowed to scrape |
 | `cron_enabled: false` | Handler logs `skipped: cron_enabled is false` and exits |
+| `last_run_hour` | Hour key of the last real scrape (no minutes) |
 
-Change it from the **UI** (Execution modal → Scheduled → Save) or via API:
+Change it from the **UI** (Execution modal → Scheduled → **Every N hours** → Save) or via API:
 
 ```bash
 curl -X PUT http://localhost:8787/api/config \
   -H "x-api-key: hn-scraper-7f3a9c2e1b8d4f6a-static" \
   -H "content-type: application/json" \
-  -d '{"cron_enabled": true, "cron_expression": "0 */2 * * *"}'
+  -d '{"cron_enabled": true, "frequency_hours": 2, "cron_expression": "0 */2 * * *"}'
 ```
 
-> Keep `cron_expression` in Firestore aligned with (or as a human label for) the `wrangler.toml` value; the audit reason string is derived from the stored expression (`each 2 h`).
+> `cron_expression` is kept only as a human-readable label; the runtime comparison uses **`frequency_hours` + `last_run_hour`**. You do **not** redeploy when changing frequency.
 
 ### 13.4 Test cron locally
 
@@ -540,11 +536,14 @@ Local `wrangler dev` does **not** fire crons automatically. Trigger manually:
 curl "http://127.0.0.1:8787/cdn-cgi/local/scheduled"
 ```
 
-You should see a `[scheduled] { ... }` log object in the Wrangler terminal when `cron_enabled` is true.
+- First call (or after `frequency_hours` elapsed): `[scheduled] { skipped: false, … last_run_hour: '…' }`.
+- Second call in the same hour: `skipped: true, reason: 'frequency_not_reached'` (expected).
 
 ### 13.5 Test cron in production
 
-Use the dashboard: **Triggers** → **Cron** → **Test** (or wait for the next window). Also confirm a new `usage_logs` document with `execution_type: "SCHEDULED"`.
+Use the dashboard: **Triggers** → **Cron** → **Test**, or wait for the next hourly wake after `frequency_hours` have elapsed. Confirm a new `usage_logs` document with `execution_type: "SCHEDULED"` and reason `Scraping and save entries (each N h)`.
+
+**Free plan math:** 24 wakes/day ≈ 0.024 % of the 100,000 requests/day limit.
 
 ---
 
@@ -591,8 +590,8 @@ CORS: the Worker already returns `access-control-allow-origin: *`, so the Pages 
 - [ ] `cd frontend && npm run lint && npm run build` green
 - [ ] (Prod) `npx wrangler login` + `npx wrangler deploy`
 - [ ] (Prod) `npx wrangler secret put API_KEY` with strong key
-- [ ] (Prod) Dashboard → Triggers shows cron `0 */2 * * *`
-- [ ] (Prod) `system_config.cron_enabled = true` if you want scheduled scrapes
+- [ ] (Prod) Dashboard → Triggers shows base cron `0 * * * *` (hourly wake)
+- [ ] (Prod) UI Execution → Scheduled + **Every N hours** saved (`cron_enabled: true`, `frequency_hours: N`)
 - [ ] (Prod) Frontend rebuilt with production `VITE_API_BASE_URL` / `VITE_API_KEY`
 
 ---
@@ -607,7 +606,7 @@ CORS: the Worker already returns `access-control-allow-origin: *`, so the Pages 
 | HTTP **401** from UI | Frontend key ≠ Worker key | Align `VITE_API_KEY` with `API_KEY`; restart Vite / rebuild |
 | UI loads but logs empty | Firestore rules block read, or no data yet | Allow read for `usage_logs` in rules; trigger a filter run |
 | Scrape 500 from Worker | Outbound fetch to HN failed | Check network/URL; inspect Worker logs |
-| Cron never runs in prod | Trigger not deployed or `cron_enabled` false | Redeploy; set `cron_enabled: true` |
+| Cron never runs in prod | Trigger not deployed, `cron_enabled` false, or `frequency_hours` not elapsed (`frequency_not_reached`) | Redeploy; save UI schedule (`cron_enabled: true`); wait `frequency_hours` since `last_run_hour` |
 | Cron does not run in `wrangler dev` | Expected — local crons are manual | `curl http://127.0.0.1:8787/cdn-cgi/local/scheduled` |
 | Env changes ignored | Vite caches env at process start | Restart `npm run dev` / rebuild |
 | Firebase SDK errors inside Worker | SDK unsupported on Workers | Runtime uses `FirestoreRestRepository` (REST) — expected on CF |
@@ -649,7 +648,8 @@ cd backend
 npx wrangler login
 npx wrangler secret put API_KEY
 npx wrangler deploy
-# Dashboard → Triggers → confirm cron; set cron_enabled if needed
+# Dashboard → Triggers → confirm base cron 0 * * * *
+# UI Execution → Scheduled → Every N hours → Save (frequency_hours)
 
 cd ../frontend
 # set VITE_API_BASE_URL + VITE_API_KEY

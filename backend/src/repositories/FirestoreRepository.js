@@ -17,7 +17,9 @@ const VALID_EXECUTION_TYPES = ['MANUAL', 'SCHEDULED', 'ORDER', 'SEARCH'];
 // If no configuration document exists in Firestore, this will be used.
 export const DEFAULT_SYSTEM_CONFIG = {
   cron_enabled: false,
-  cron_expression: '0 */6 * * *'
+  cron_expression: '0 */6 * * *',
+  frequency_hours: 6,
+  last_run_hour: null
 };
 
 // Concrete repository for persisting data in Firestore.

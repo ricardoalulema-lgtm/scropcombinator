@@ -11,7 +11,9 @@ const VALID_EXECUTION_TYPES = ['MANUAL', 'SCHEDULED', 'ORDER', 'SEARCH'];
 
 export const DEFAULT_SYSTEM_CONFIG = {
   cron_enabled: false,
-  cron_expression: '0 */6 * * *'
+  cron_expression: '0 */6 * * *',
+  frequency_hours: 6,
+  last_run_hour: null
 };
 
 const encodeValue = (value) => {

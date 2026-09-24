@@ -71,7 +71,8 @@ export default function App() {
         setConfig(data);
         setMode(data.cron_enabled ? 'scheduled' : 'manual');
         const match = /^0 \*\/(\d{1,3}) \* \* \*$/.exec(data.cron_expression ?? '');
-        setFrequencyHours(match ? Number(match[1]) : 2);
+        const fallbackHours = match ? Number(match[1]) : 2;
+        setFrequencyHours(Number(data.frequency_hours) || fallbackHours);
       })
       .catch((err) => {
         if (!cancelled) setError(err.message);
@@ -127,7 +128,8 @@ export default function App() {
 
     const payload = {
       cron_enabled: mode === 'scheduled',
-      cron_expression: hoursToCron(frequencyHours)
+      cron_expression: hoursToCron(frequencyHours),
+      frequency_hours: frequencyHours
     };
 
     try {
@@ -145,7 +147,13 @@ export default function App() {
   const handleFrequencyChange = (hours) => {
     setFrequencyHours(hours);
     setConfig((current) =>
-      current ? { ...current, cron_expression: hoursToCron(hours) } : current
+      current
+        ? {
+            ...current,
+            cron_expression: hoursToCron(hours),
+            frequency_hours: hours
+          }
+        : current
     );
   };
 
@@ -156,7 +164,8 @@ export default function App() {
         ? {
             ...current,
             cron_enabled: nextMode === 'scheduled',
-            cron_expression: hoursToCron(frequencyHours)
+            cron_expression: hoursToCron(frequencyHours),
+            frequency_hours: frequencyHours
           }
         : current
     );

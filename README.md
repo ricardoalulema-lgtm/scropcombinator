@@ -84,6 +84,13 @@ Full-stack solution that scrapes the **top 30 Hacker News entries**, filters and
    - Click **Points** / **Comments** headers → sort desc (toggle) → audit `ORDER` (`Order by points` / `Order by comments`).
    - Exact word-count choice next to **Title** → audit `SEARCH` (`filter by [n] words`).
    - UI actions persist logs via `POST /api/logs`.
+6. **Scheduled execution (Firestore-driven schedule)**
+   - `wrangler.toml` defines a fixed base wake: `crons = ["0 * * * *"]` (every hour, UTC) — infrastructure only, never edited to change frequency.
+   - Firestore `system_config` holds the real schedule: `frequency_hours` (UI options 1, 2, 3, 4, 6, 8, 12, 24) and `last_run_hour` (hour key **without minutes**, e.g. `2026-09-24T18`, UTC).
+   - On every hourly wake the Worker: skips if `cron_enabled` is `false`; scrapes if `last_run_hour` is empty (first run); otherwise scrapes **only when** `current_hour − last_run_hour ≥ frequency_hours`, then writes the new `last_run_hour`.
+   - Saving the Execution modal (`PUT /api/config`) also **anchors** `last_run_hour` to the current hour, restarting the countdown.
+   - The scheduled audit reason is built from the stored frequency: `Scraping and save entries (each N h)`.
+   - Changing the frequency is a UI/Firestore edit only — **no redeploy**.
 
 ---
 
@@ -96,6 +103,7 @@ Full-stack solution that scrapes the **top 30 Hacker News entries**, filters and
 │   │   ├── config/          # firebaseConfig.js, firebase.js (factory)
 │   │   ├── repositories/    # BaseRepository, FirestoreRepository, FirestoreRestRepository
 │   │   ├── services/        # WordCounter, HackerNewsScraper, strategies/
+│   │   ├── utils/           # schedule.js (shared schedule/audit helpers)
 │   │   └── worker.js        # fetch + scheduled handlers
 │   ├── tests/               # Vitest unit + integration suites (see Test files)
 │   ├── wrangler.toml        # Cloudflare config, cron, API_KEY var
@@ -262,20 +270,21 @@ Keep frontend and Worker keys in sync: after rotating `API_KEY`, rebuild fronten
 
 ### 3. Cron triggers (scheduled scrapes) — simple steps
 
-The Worker can scrape Hacker News **automatically every 2 hours**. You only need these actions:
+The Worker can scrape Hacker News **automatically** on a frequency you pick in the UI.  
+**How it works:** Cloudflare wakes the Worker **every hour on the hour** (fixed); Firestore decides whether enough hours have passed.
 
-#### Step A — The schedule is already in the project (no extra config)
+#### Step A — Base trigger (already in the project)
 
 In `backend/wrangler.toml`:
 
 ```toml
 [triggers]
-crons = ["0 */2 * * *"]
+crons = ["0 * * * *"]
 ```
 
-`0 */2 * * *` means: **run at minute 0 of every 2nd hour (UTC)** — e.g. 00:00, 02:00, 04:00…
+`0 * * * *` = wake up **once per hour at minute 0 (UTC)** — 24 wakes/day (0.024 % of the free 100k/day).
 
-You do **not** install the cron separately. It is published when you deploy:
+It is published with the deploy (no separate install):
 
 ```bash
 cd backend
@@ -285,57 +294,53 @@ npx wrangler deploy
 #### Step B — Confirm Cloudflare received the schedule
 
 1. Open the [Cloudflare Dashboard](https://dash.cloudflare.com).
-2. Go to **Workers & Pages** → select **`hacker-news-scraper`**.
-3. Open **Settings** → **Triggers**.
-4. Under **Cron Triggers** you should see: `0 */2 * * *` (Production).
+2. **Workers & Pages** → **`hacker-news-scraper`** → **Settings** → **Triggers**.
+3. You should see `0 * * * *` (Production). If missing, run `npx wrangler deploy` again.
 
-If it is missing, run `npx wrangler deploy` again from `backend/`.
+#### Step C — Choose the frequency in the UI (Firestore decides)
 
-#### Step C — Turn the job ON inside the app
+Firestore `system_config` fields:
 
-Deploying the cron only registers the **timer**. The app also checks a switch in Firestore (`system_config`):
-
-| Value | What happens every 2 hours |
+| Field | Meaning |
 |---|---|
-| `cron_enabled: true` | Scrape HN → save cache → write audit log (`SCHEDULED`) |
-| `cron_enabled: false` | Job wakes up and **does nothing** (skip) |
+| `frequency_hours` | How often entries must refresh (1, 2, 3, 4, 6, 8, 12 or 24) — set from the UI |
+| `cron_enabled` | `true` = scheduled runs allowed; `false` = always skip |
+| `last_run_hour` | Last real scrape, **hour only without minutes** (e.g. `2026-09-24T15`) |
 
-**Easiest way:** open the app → menu **Execution** → choose **Scheduled** → **Save**.
+**On every hourly wake** the Worker:
 
-**Or via API:**
+1. Reads config; if `cron_enabled` is false → skip.
+2. If `last_run_hour` is empty → **scrape** (first run).
+3. Else if `current_hour − last_run_hour ≥ frequency_hours` → **scrape** and save `last_run_hour = current hour`.
+4. Otherwise → skip (no log).
 
-```bash
-curl -X PUT "https://hacker-news-scraper.<account>.workers.dev/api/config" \
-  -H "x-api-key: <API_KEY>" \
-  -H "content-type: application/json" \
-  -d '{"cron_enabled": true, "cron_expression": "0 */2 * * *"}'
-```
+**Saving the Execution modal** (PUT `/api/config`) also writes `last_run_hour` with the current hour (anchor after you change settings).
+
+**Easiest way:** menu **Execution** → **Scheduled** → pick **Every N hours** → **Save**.
 
 #### Step D — Verify it is running
 
-1. Wait for the next even hour (UTC), **or** use Dashboard → **Triggers** → **Test** on the cron.
-2. In the app open **Logs**: a new row with `execution_type: SCHEDULED` and reason like `Scraping and save entries (each 2 h)`.
-3. Live logs from your machine:
-
-```bash
-cd backend
-npx wrangler tail
-```
+1. Wait `frequency_hours`, **or** use Dashboard → **Triggers** → **Test** (test wakes may skip if frequency not elapsed).
+2. App → **Logs**: row `execution_type: SCHEDULED` and reason `Scraping and save entries (each N h)`.
+3. Live logs: `cd backend && npx wrangler tail`.
 
 #### Local testing note
 
-`npx wrangler dev` does **not** fire the cron by itself. Trigger it manually:
+`npx wrangler dev` does **not** fire the cron by itself:
 
 ```bash
 curl "http://127.0.0.1:8787/cdn-cgi/local/scheduled"
 ```
 
+The first call scrapes; a second call in the same hour returns `reason: frequency_not_reached`.
+
 | If you want… | Do this |
 |---|---|
-| Different frequency (e.g. every hour) | Edit `crons` in `wrangler.toml` → `npx wrangler deploy` → set `cron_expression` to `0 */1 * * *` in UI/API |
-| Pause automatic runs | UI **Execution** → Manual → Save (`cron_enabled: false`) |
-| Resume automatic runs | UI **Execution** → Scheduled → Save (`cron_enabled: true`) |
-| Change when it runs | Cron is **UTC** only on Cloudflare |
+| Different frequency | UI **Execution** → Scheduled → **Every N hours** → Save (no redeploy) |
+| Pause automatic runs | UI → Manual → Save (`cron_enabled: false`) |
+| Resume | UI → Scheduled → Save (`cron_enabled: true`) |
+| Change the hourly wake itself | Edit `crons` in `wrangler.toml` → `npx wrangler deploy` (rarely needed) |
+| Timezone note | Hour keys are **UTC** |
 
 ### 4. Deploy the frontend (Cloudflare Pages)
 
@@ -361,8 +366,8 @@ CORS: the Worker returns `access-control-allow-origin: *`, so Pages can call the
 
 - [ ] `npx wrangler deploy` succeeded; Worker URL recorded
 - [ ] `npx wrangler secret put API_KEY` (strong key)
-- [ ] Dashboard → Triggers shows cron `0 */2 * * *`
-- [ ] UI **Execution** → Scheduled saved (`cron_enabled: true`) if you want automatic scrapes
+- [ ] Dashboard → Triggers shows base cron `0 * * * *` (hourly wake)
+- [ ] UI **Execution** → Scheduled + **Every N hours** saved (`cron_enabled: true`, `frequency_hours: N`)
 - [ ] Frontend built with production `VITE_API_BASE_URL` + matching `VITE_API_KEY`
 - [ ] UI loads; unauthenticated API call returns 401; authenticated health returns `"status": "ok"`
 
@@ -413,7 +418,8 @@ Historical results per step are recorded in `testresults.me`.
 | `FirestoreRepository.integration.test.js` | Integration (live Firestore) | Real writes/reads for entries, usage logs, system config (`npm run test:firestore`) |
 | `FirestoreRestRepository.test.js` | Unit | REST repository for Workers: Firestore REST encode/decode, validation without calling API, ORDER/SEARCH accepted |
 | `worker.test.js` | Unit | Router: API key auth (401/500/Bearer), CORS OPTIONS, NO_FILTER, business filters, `/api/scrape`, `/api/config`, **`POST /api/logs` (ORDER/SEARCH)**, cron `handleScheduled` |
-| `ScrapeAndSave.integration.test.js` | Integration (E2E) | Scrape real HN → save `entries_cache` → audit log for MANUAL and SCHEDULED flows |
+| `schedule.test.js` | Unit | Shared schedule/audit helpers (`utils/schedule.js`): `buildSaveReason`, `currentHourKey`, `hoursBetween`, `resolveFrequencyHours`, `scheduledFrequencyLabel` |
+| `ScrapeAndSave.integration.test.js` | Integration (E2E) | Scrape real HN → save `entries_cache` → audit log for MANUAL and SCHEDULED flows; SCHEDULED label read from real `system_config.frequency_hours` |
 
 ### Frontend — `frontend/src/utils/`
 
@@ -434,8 +440,20 @@ Historical results per step are recorded in `testresults.me`.
 | **Static API key on every HTTP request** | Lightweight auth so arbitrary clients cannot GET/PUT the API; header `x-api-key` or `Authorization: Bearer`. OPTIONS (CORS preflight) is exempt. Key lives in `wrangler.toml [vars]` locally; use `wrangler secret put API_KEY` in production. |
 | **Realtime via `onSnapshot`** | Audit logs and `entries_cache` update without polling; matches the architecture diagram. |
 | **`NO_FILTER` default in UI** | Users see results immediately from cache; filters are opt-in. |
+| **Firestore-driven schedule (hourly base wake)** | Cloudflare only accepts fixed cron expressions, so `wrangler.toml` wakes the Worker every hour (`0 * * * *`) and Firestore decides the actual frequency: `handleScheduled` compares `frequency_hours` against `last_run_hour` (hour key without minutes) and skips with `frequency_not_reached` until N hours elapse; `PUT /api/config` anchors `last_run_hour` on every save. Frequency is chosen in the UI and never requires a redeploy, and the audit label `each N h` is derived from the stored config (`utils/schedule.js`) so logs always match the user's choice. **Nota:** se usa esta función para dar una mejor experiencia al usuario. |
 | **Vitest** | Same toolchain as Vite frontend; fast, ESM-native, good mocking. |
 | **Monorepo `backend/` + `frontend/`** | Clear separation of deployables while sharing one repository and commit history. |
+
+### UI functional improvements (beyond the original requirements)
+
+Enhancements added during the UI refinement phase that are **not** part of the original spec in `Requirements.me`:
+
+- **Sort by Points / Comments** — clickable `Points` and `Comments` table headers sort the visible results descending (toggle on/off) entirely on the client, with no refetch.
+- **Text filter on titles** — case-insensitive search box above the table that narrows the current view instantly (client-side only, no audit entry, so exploratory searching does not pollute the logs).
+- **ORDER audit logging** — every header sort is persisted as `execution_type: ORDER` with reason `Order by points` / `Order by comments` through `POST /api/logs`, so ordering activity is traceable like backend runs.
+- **SEARCH audit logging by word count** — the exact word-count selector next to **Title** filters entries with the precise title word count and persists `execution_type: SEARCH` with reason `filter by [n] words` via `POST /api/logs`.
+
+All four are implemented as pure helpers in `frontend/src/utils/entriesView.js` (unit-tested) and wired in `ResultsTable.jsx` / `App.jsx`.
 
 ---
 
@@ -449,12 +467,12 @@ All routes (except `OPTIONS`) require `x-api-key` or `Authorization: Bearer <API
 | `GET` | `/api/entries?filter=NO_FILTER\|MORE_THAN_5_WORDS_BY_COMMENTS\|LESS_OR_EQUAL_5_WORDS_BY_POINTS` | Scrape, filter, audit (`MANUAL`) |
 | `GET` | `/api/scrape` | Scrape and save to `entries_cache` |
 | `GET` | `/api/config` | Read `system_config` |
-| `PUT` | `/api/config` | Merge update `system_config` |
+| `PUT` | `/api/config` | Merge update `system_config` (anchors `last_run_hour`) |
 | `POST` | `/api/logs` | Save UI audit log (`ORDER` / `SEARCH`) |
 | `OPTIONS` | `*` | CORS preflight (no API key) |
 
 Cron (local test): `curl "http://127.0.0.1:8787/cdn-cgi/local/scheduled"`  
-Production schedule: `0 */2 * * *` (every 2 hours), gated by `cron_enabled`.
+Production schedule: base wake `0 * * * *` (hourly), gated by `cron_enabled` + `frequency_hours` vs `last_run_hour` in Firestore.
 
 Error codes: `400` invalid filter/body · `401` missing/invalid API key · `404` unknown route · `500` upstream/server errors (including missing server API key config).
 

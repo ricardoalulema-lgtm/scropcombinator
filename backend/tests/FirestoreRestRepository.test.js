@@ -159,7 +159,9 @@ describe('FirestoreRestRepository', () => {
 
       expect(config).toEqual({
         cron_enabled: false,
-        cron_expression: '0 */6 * * *'
+        cron_expression: '0 */6 * * *',
+        frequency_hours: 6,
+        last_run_hour: null
       });
     });
 
@@ -169,7 +171,9 @@ describe('FirestoreRestRepository', () => {
           name: 'projects/p/databases/(default)/documents/system_config/global',
           fields: {
             cron_enabled: { booleanValue: true },
-            cron_expression: { stringValue: '0 */2 * * *' }
+            cron_expression: { stringValue: '0 */2 * * *' },
+            frequency_hours: { integerValue: '2' },
+            last_run_hour: { stringValue: '2026-09-24T13' }
           }
         })
       );
@@ -178,7 +182,9 @@ describe('FirestoreRestRepository', () => {
 
       expect(config).toEqual({
         cron_enabled: true,
-        cron_expression: '0 */2 * * *'
+        cron_expression: '0 */2 * * *',
+        frequency_hours: 2,
+        last_run_hour: '2026-09-24T13'
       });
       expect(fetcher).toHaveBeenCalledWith(
         documentUrl('system_config/global'),
@@ -202,11 +208,15 @@ describe('FirestoreRestRepository', () => {
       const body = JSON.parse(fetcher.mock.calls[0][1].body);
       expect(body.fields).toEqual({
         cron_enabled: { booleanValue: true },
-        cron_expression: { stringValue: '0 */1 * * *' }
+        cron_expression: { stringValue: '0 */1 * * *' },
+        frequency_hours: { integerValue: '6' },
+        last_run_hour: { nullValue: null }
       });
       expect(config).toEqual({
         cron_enabled: true,
-        cron_expression: '0 */1 * * *'
+        cron_expression: '0 */1 * * *',
+        frequency_hours: 6,
+        last_run_hour: null
       });
     });
 

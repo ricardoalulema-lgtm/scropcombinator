@@ -359,8 +359,8 @@ Primary Firebase persistence for **Node and tests** using the official SDK. Vali
 | Name | Type | Description |
 |---|---|---|
 | `USAGE_LOGS_COLLECTION` etc. | `string` (const) | Collection/document names. |
-| `VALID_EXECUTION_TYPES` | `string[]` | `['MANUAL','SCHEDULED']`. |
-| `DEFAULT_SYSTEM_CONFIG` | `object` (export) | `{ cron_enabled, cron_expression }`. |
+| `VALID_EXECUTION_TYPES` | `string[]` | `['MANUAL','SCHEDULED','ORDER','SEARCH']`. |
+| `DEFAULT_SYSTEM_CONFIG` | `object` (export) | `{ cron_enabled, cron_expression, frequency_hours, last_run_hour }`. |
 | `this.db` | Firestore | Injected database instance. |
 
 ### Constructor
@@ -502,16 +502,15 @@ Main Worker entry: single fetch router for all HTTP traffic plus cron handler. E
 | Function | What it does |
 |---|---|
 | `json(data, status)` | JSON response helper with CORS. |
-| `buildSaveReason(type, freqLabel)` | Audit reason string for manual/scheduled saves. |
-| `describeFrequency(cron)` | `'0 */N * * *'` → `'each N h'`. |
+| `buildSaveReason`, `currentHourKey`, `hoursBetween`, `resolveFrequencyHours`, `scheduledFrequencyLabel` | Schedule/audit helpers imported from `utils/schedule.js` (see §9b). |
 | `extractApiKey(request)` | Reads `x-api-key` or Bearer token. |
 | `isAuthorized(request, apiKey)` | Constant-time-enough equality check; fails closed. |
 | `createServices(env)` | DI container for one request/cron invocation. |
 | `handleEntriesQuery(url, services)` | Auth already passed; scrape → strategy or `NO_FILTER` → audit → JSON. |
 | `handleManualScrape(services)` | Scrape → `saveEntries` → audit `(manual)`. |
-| `handleGetConfig` / `handleUpdateConfig` | Read/merge `system_config`. |
+| `handleGetConfig` / `handleUpdateConfig` | Read/merge `system_config`; PUT also anchors `last_run_hour` to the current hour. |
 | `handleFetch(request, services)` | Router + auth gate + error → 500 JSON. |
-| `handleScheduled(services)` | Respect `cron_enabled`; scrape → save → audit `(each N h)`. |
+| `handleScheduled(services)` | Hourly base wake: skip if `cron_enabled` false or `frequency_hours` not elapsed since `last_run_hour`; else scrape → save `last_run_hour` → audit `(each N h)`. |
 | `default.fetch / default.scheduled` | Cloudflare entrypoints. |
 
 ### Related objects list
@@ -521,6 +520,49 @@ Main Worker entry: single fetch router for all HTTP traffic plus cron handler. E
 - `WordCounter`
 - `FirestoreRestRepository`
 - `wrangler.toml`
+- `utils/schedule.js` (§9b)
+
+---
+
+## 9b. `schedule.js` (shared schedule & audit helpers)
+
+**File:** `backend/src/utils/schedule.js`
+
+### Relational diagram
+
+```
+worker.js (handleScheduled / handleUpdateConfig / handleManualScrape)
+   └── imports ──► schedule.js
+ScrapeAndSave.integration.test.js
+   └── imports ──► schedule.js ──► reads system_config.frequency_hours
+tests/schedule.test.js ── unit coverage
+```
+
+| Related object | Relationship |
+|---|---|
+| `worker.js` | Cron gate (`hoursBetween`) + audit label (`scheduledFrequencyLabel`). |
+| `ScrapeAndSave.integration.test.js` | Builds the **same** `filter_applied` label from the real config (no hardcoded frequency). |
+| `system_config` document | Source of `frequency_hours` (preferred) / `cron_expression` (legacy fallback). |
+
+### Description & characteristics
+
+Pure functions shared by the Worker and the integration test so the audit value `filter_applied` always reflects the frequency configured from the UI (`each N h`) — single source of truth.
+
+### Functions
+
+| Function | What it does |
+|---|---|
+| `buildSaveReason(type, freqLabel)` | `'Scraping and save entries (…)'` for `MANUAL`/`SCHEDULED`. |
+| `currentHourKey()` | Current UTC hour without minutes, e.g. `'2026-09-24T15'`. |
+| `hoursBetween(fromHourKey, toHourKey)` | Whole hours between two hour keys; `null` if unparseable. |
+| `resolveFrequencyHours(config)` | `frequency_hours` → fallback from `cron_expression` → `1`. |
+| `scheduledFrequencyLabel(config)` | `'each N h'` derived from the stored config. |
+
+### Related objects list
+
+- `worker.js`
+- `ScrapeAndSave.integration.test.js`
+- `tests/schedule.test.js`
 
 ---
 
@@ -621,8 +663,8 @@ React function component; two `useEffect`s: (1) Firestore subscriptions with cle
 |---|---|
 | `runFilter()` | `fetchEntries(selectedFilter)` → set results/meta/notice. |
 | `runScrape()` | `scrapeNow()` → clear API results (back to cache) + notice. |
-| `saveConfig()` | PUT cron settings; closes schedule modal on success. |
-| `handleFrequencyChange(hours)` | Updates select + preview `cron_expression`. |
+| `saveConfig()` | PUT `{ cron_enabled, cron_expression, frequency_hours }`; worker anchors `last_run_hour`; closes schedule modal on success. |
+| `handleFrequencyChange(hours)` | Updates select + preview `frequency_hours` / `cron_expression`. |
 | `handleModeChange(mode)` | Toggles manual/scheduled + `cron_enabled`. |
 | `handleSelectFilter(id)` | Sets chip; `NO_FILTER` clears API results → cache view. |
 
@@ -912,7 +954,7 @@ App.saveConfig ──► api.updateSystemConfig ──► PUT /api/config
 
 ### Description & characteristics
 
-Friendly **Manual vs Scheduled** segmented control + “How often?” frequency select; shows raw cron meta. Rendered inside the Execution modal.
+Friendly **Manual vs Scheduled** segmented control + “How often?” frequency select (`frequency_hours`); shows meta `enabled · every Nh · last run <hour key>`. Rendered inside the Execution modal. The actual scrape decision is made at runtime by `handleScheduled` (hourly base wake in `wrangler.toml` + Firestore `frequency_hours` / `last_run_hour`).
 
 ### Variables (module)
 
@@ -1046,7 +1088,7 @@ Produced by `HackerNewsScraper.parse`, consumed by strategies, Worker responses,
   timestamp: string,        // ISO 8601
   filter_applied: string,   // filter id or scrape reason
   results_count: number,
-  execution_type: 'MANUAL' | 'SCHEDULED',
+  execution_type: 'MANUAL' | 'SCHEDULED' | 'ORDER' | 'SEARCH',
   execution_time_ms: number
 }
 ```
@@ -1056,10 +1098,15 @@ Written by repositories; read realtime by `subscribeUsageLogs` → `AuditLogsTab
 ## System config (plain object)
 
 ```js
-{ cron_enabled: boolean, cron_expression: string }
+{
+  cron_enabled: boolean,      // scheduled runs allowed
+  cron_expression: string,    // legacy label '0 */N * * *'
+  frequency_hours: number,    // scrape every N hours (UI: 1,2,3,4,6,8,12,24)
+  last_run_hour: string|null  // last real scrape, hour key 'YYYY-MM-DDTHH' (UTC, no minutes)
+}
 ```
 
-Read/updated via `/api/config` and `ScheduleConfig`.
+Read/updated via `/api/config` and `ScheduleConfig`. `PUT` anchors `last_run_hour`; `handleScheduled` compares it against `frequency_hours` on each hourly wake (`wrangler.toml` → `0 * * * *`).
 
 ---
 

@@ -3,6 +3,13 @@ import { WordCounter } from './services/WordCounter.js';
 import { MoreThanFiveWordsStrategy } from './services/strategies/MoreThanFiveWordsStrategy.js';
 import { LessOrEqualFiveWordsStrategy } from './services/strategies/LessOrEqualFiveWordsStrategy.js';
 import { FirestoreRestRepository } from './repositories/FirestoreRestRepository.js';
+import {
+  buildSaveReason,
+  currentHourKey,
+  hoursBetween,
+  resolveFrequencyHours,
+  scheduledFrequencyLabel
+} from './utils/schedule.js';
 
 // CORS headers to allow the backend to respond from different origins.
 const CORS_HEADERS = {
@@ -20,23 +27,6 @@ const json = (data, status = 200) =>
       ...CORS_HEADERS
     }
   });
-
-// Generates a descriptive text for the execution log based on the type.
-const buildSaveReason = (executionType, frequencyLabel) =>
-  executionType === 'SCHEDULED'
-    ? `Scraping and save entries (${frequencyLabel})`
-    : 'Scraping and save entries (manual)';
-
-// Converts a cron expression into a more readable label for logs.
-const describeFrequency = (cronExpression) => {
-  const hourlyMatch = /^0 \*\/(\d{1,3}) \* \* \*$/.exec(cronExpression ?? '');
-
-  if (hourlyMatch) {
-    return `each ${hourlyMatch[1]} h`;
-  }
-
-  return cronExpression ?? 'custom';
-};
 
 // Extracts the API key sent in the request (x-api-key or Authorization Bearer).
 const extractApiKey = (request) => {
@@ -186,7 +176,11 @@ const handleUpdateConfig = async (request, services) => {
     return json({ error: 'Request body must be a JSON object' }, 400);
   }
 
-  const config = await services.repository.updateSystemConfig(payload);
+  // Anchors the schedule: saving config records the current hour (no minutes).
+  const config = await services.repository.updateSystemConfig({
+    ...payload,
+    last_run_hour: currentHourKey()
+  });
   return json(config);
 };
 
@@ -300,11 +294,33 @@ export const handleScheduled = async (services) => {
     return { skipped: true, reason: 'cron_disabled' };
   }
 
-  const frequencyLabel = describeFrequency(config.cron_expression);
+  const frequencyHours = resolveFrequencyHours(config);
+  const currentHour = currentHourKey();
+
+  // Base trigger fires every hour; only scrape when frequency_hours have passed.
+  if (config.last_run_hour) {
+    const elapsedHours = hoursBetween(config.last_run_hour, currentHour);
+
+    if (elapsedHours !== null && elapsedHours < frequencyHours) {
+      const skipped = {
+        skipped: true,
+        reason: 'frequency_not_reached',
+        frequency_hours: frequencyHours,
+        last_run_hour: config.last_run_hour,
+        current_hour: currentHour
+      };
+      console.log('[scheduled]', skipped);
+      return skipped;
+    }
+  }
+
+  const frequencyLabel = scheduledFrequencyLabel(config);
   const startedAt = performance.now();
   const entries = await services.scraper.scrape();
   await services.repository.saveEntries(entries);
   const executionTimeMs = Math.round(performance.now() - startedAt);
+
+  await services.repository.updateSystemConfig({ last_run_hour: currentHour });
 
   const filterApplied = buildSaveReason('SCHEDULED', frequencyLabel);
   const logId = await services.repository.saveUsageLog({
@@ -320,7 +336,8 @@ export const handleScheduled = async (services) => {
     entries_count: entries.length,
     execution_time_ms: executionTimeMs,
     log_id: logId,
-    filter_applied: filterApplied
+    filter_applied: filterApplied,
+    last_run_hour: currentHour
   };
 
   console.log('[scheduled]', result);

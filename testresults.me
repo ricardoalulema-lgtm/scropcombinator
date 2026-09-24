@@ -805,3 +805,487 @@ stdout | tests/worker.test.js > worker - scheduled handler > skips the execution
    Start at  11:07:58
    Duration  1.02s (import 53%, transform 32%, tests 12%, worker 3%)
 
+
+step 2 - test real web
+[
+  {
+    "number": 1,
+    "title": "F-Droid 2.0",
+    "points": 461,
+    "comments": 136
+  },
+  {
+    "number": 2,
+    "title": "Show HN: Whiteboard (YC W26) – An open-source IDE for thoughtful software design",
+    "points": 70,
+    "comments": 14
+  },
+  {
+    "number": 3,
+    "title": "Creatine uptake enhances antitumor immunity",
+    "points": 13,
+    "comments": 2
+  },
+  {
+    "number": 4,
+    "title": "Rails World 2026 Opening Keynote [video]",
+    "points": 65,
+    "comments": 31
+  },
+  {
+    "number": 5,
+    "title": "Fearless SIMD v1.0",
+    "points": 36,
+    "comments": 6
+  },
+  {
+    "number": 6,
+    "title": "Stable (YC W20) Is Hiring Product Engineers",
+    "points": 0,
+    "comments": 0
+  },
+  {
+    "number": 7,
+    "title": "Why is the liver so weirdly regenerative?",
+    "points": 24,
+    "comments": 19
+  },
+  {
+    "number": 8,
+    "title": "Show HN: Make cursed fonts like Times New Bastard",
+    "points": 30,
+    "comments": 7
+  },
+  {
+    "number": 9,
+    "title": "Two-tier encryption in the UK",
+    "points": 297,
+    "comments": 288
+  },
+  {
+    "number": 10,
+    "title": "Forging 1024-bit RSA signatures in nearly SNFS time [pdf]",
+    "points": 12,
+    "comments": 0
+  },
+  {
+    "number": 11,
+    "title": "The forgotten battle of East Lansing",
+    "points": 15,
+    "comments": 0
+  },
+  {
+    "number": 12,
+    "title": "Security auditing in the age of (good enough) AI",
+    "points": 13,
+    "comments": 1
+  },
+  {
+    "number": 13,
+    "title": "Book review: Is parallel programming hard, and, if so, what can you do about it?",
+    "points": 16,
+    "comments": 0
+  },
+  {
+    "number": 14,
+    "title": "Show HN: Air-gapped file encryption as self-decrypting HTML page",
+    "points": 9,
+    "comments": 6
+  },
+  {
+    "number": 15,
+    "title": "WaveDigger: Dig into wireless signals to discover their physical locations",
+    "points": 47,
+    "comments": 6
+  },
+  {
+    "number": 16,
+    "title": "Motor Characterization for Small Running Robots (2016)",
+    "points": 13,
+    "comments": 0
+  },
+  {
+    "number": 17,
+    "title": "Nokia Design Archive (2025)",
+    "points": 183,
+    "comments": 97
+  },
+  {
+    "number": 18,
+    "title": "My Weird New Hobby: Wandering Around Tokyo on Google Maps",
+    "points": 19,
+    "comments": 8
+  },
+  {
+    "number": 19,
+    "title": "Toyota is taking the Corolla electric",
+    "points": 89,
+    "comments": 83
+  },
+  {
+    "number": 20,
+    "title": "GitHub has not removed malicious imitation software after 3 weeks",
+    "points": 170,
+    "comments": 71
+  },
+  {
+    "number": 21,
+    "title": "Geothermal heat map of US hot springs",
+    "points": 23,
+    "comments": 7
+  },
+  {
+    "number": 22,
+    "title": "B5-BJ2 – Ice Cream Barges – Concrete Ship Constructors (2023)",
+    "points": 16,
+    "comments": 5
+  },
+  {
+    "number": 23,
+    "title": "Experiencing writing at our recent Chinese calligraphy workshop",
+    "points": 13,
+    "comments": 1
+  },
+  {
+    "number": 24,
+    "title": "Show HN: AgentRun: DSL to turn agents into workflows",
+    "points": 14,
+    "comments": 0
+  },
+  {
+    "number": 25,
+    "title": "Search – A small, fast WebKit browser for macOS",
+    "points": 38,
+    "comments": 2
+  },
+  {
+    "number": 26,
+    "title": "Ideas on modernizing the open-source desktop",
+    "points": 348,
+    "comments": 432
+  },
+  {
+    "number": 27,
+    "title": "The science of Monkey Island: can grog dissolve a metal mug that fast?",
+    "points": 108,
+    "comments": 23
+  },
+  {
+    "number": 28,
+    "title": "Show HN: Treepeat – Code similarity detection using Tree-sitter",
+    "points": 8,
+    "comments": 0
+  },
+  {
+    "number": 29,
+    "title": "RAM: the forgotten history (2024)",
+    "points": 101,
+    "comments": 4
+  },
+  {
+    "number": 30,
+    "title": "When the Debugger Lies",
+    "points": 60,
+    "comments": 17
+  }
+]
+step 6 - Firestore-driven schedule (frequency_hours + last_run_hour)
+
+ RUN  v5.0.1 C:/Users/SUPERTRONICA/Documents/Proyectos/scropcombinator/backend
+
+stdout | tests/worker.test.js > worker - scheduled handler > runs on first execution (no last_run_hour) and audits as "(each 2 h)"
+[scheduled] {
+  skipped: false,
+  entries_count: 3,
+  execution_time_ms: 0,
+  log_id: 'log-1',
+  filter_applied: 'Scraping and save entries (each 2 h)',
+  last_run_hour: '2026-09-24T15'
+}
+
+stdout | tests/worker.test.js > worker - scheduled handler > skips when frequency_hours have not elapsed since last_run_hour
+[scheduled] {
+  skipped: true,
+  reason: 'frequency_not_reached',
+  frequency_hours: 2,
+  last_run_hour: '2026-09-24T14',
+  current_hour: '2026-09-24T15'
+}
+
+stdout | tests/worker.test.js > worker - scheduled handler > runs when frequency_hours have elapsed since last_run_hour
+[scheduled] {
+  skipped: false,
+  entries_count: 3,
+  execution_time_ms: 0,
+  log_id: 'log-1',
+  filter_applied: 'Scraping and save entries (each 2 h)',
+  last_run_hour: '2026-09-24T15'
+}
+
+stdout | tests/worker.test.js > worker - scheduled handler > runs across midnight when frequency_hours have elapsed
+[scheduled] {
+  skipped: false,
+  entries_count: 3,
+  execution_time_ms: 0,
+  log_id: 'log-1',
+  filter_applied: 'Scraping and save entries (each 2 h)',
+  last_run_hour: '2026-09-25T01'
+}
+
+stdout | tests/worker.test.js > worker - scheduled handler > uses frequency_hours for the audit label
+[scheduled] {
+  skipped: false,
+  entries_count: 3,
+  execution_time_ms: 0,
+  log_id: 'log-1',
+  filter_applied: 'Scraping and save entries (each 6 h)',
+  last_run_hour: '2026-09-24T15'
+}
+
+stdout | tests/worker.test.js > worker - scheduled handler > skips the execution when cron_enabled is false
+[scheduled] skipped: cron_enabled is false
+
+ ✓ tests/worker.test.js > worker - fetch handler > returns service info on GET / with a valid API key 11ms
+ ✓ tests/worker.test.js > worker - fetch handler > answers OPTIONS with CORS headers without requiring an API key 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > rejects any request without an API key with 401 2ms
+ ✓ tests/worker.test.js > worker - fetch handler > rejects an invalid API key with 401 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > accepts the API key via Authorization Bearer header 2ms
+ ✓ tests/worker.test.js > worker - fetch handler > returns 500 when the server has no API key configured 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > rejects an unknown filter with 400 and the valid filter list 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > returns all entries unfiltered on NO_FILTER and audits as NO_FILTER 3ms
+ ✓ tests/worker.test.js > worker - fetch handler > runs MORE_THAN_5_WORDS_BY_COMMENTS: scrapes, filters, sorts by comments and audits as MANUAL 3ms
+ ✓ tests/worker.test.js > worker - fetch handler > runs LESS_OR_EQUAL_5_WORDS_BY_POINTS: filters and sorts by points desc 2ms
+ ✓ tests/worker.test.js > worker - fetch handler > scrapes and saves entries on GET /api/scrape with reason "(manual)" 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > returns the system config on GET /api/config 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > updates the system config on PUT /api/config and anchors last_run_hour 3ms
+ ✓ tests/worker.test.js > worker - fetch handler > rejects an invalid JSON body on PUT /api/config with 400 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > returns 404 for unknown routes 0ms
+ ✓ tests/worker.test.js > worker - fetch handler > returns 500 with the error message when a service fails 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > saves an ORDER usage log via POST /api/logs 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > saves a SEARCH usage log via POST /api/logs 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > rejects POST /api/logs with invalid JSON 1ms
+ ✓ tests/worker.test.js > worker - fetch handler > requires the API key on POST /api/logs 0ms
+ ✓ tests/worker.test.js > worker - scheduled handler > runs on first execution (no last_run_hour) and audits as "(each 2 h)" 3ms
+ ✓ tests/worker.test.js > worker - scheduled handler > skips when frequency_hours have not elapsed since last_run_hour 3ms
+ ✓ tests/worker.test.js > worker - scheduled handler > runs when frequency_hours have elapsed since last_run_hour 2ms
+ ✓ tests/worker.test.js > worker - scheduled handler > runs across midnight when frequency_hours have elapsed 1ms
+ ✓ tests/worker.test.js > worker - scheduled handler > uses frequency_hours for the audit label 1ms
+ ✓ tests/worker.test.js > worker - scheduled handler > skips the execution when cron_enabled is false 1ms
+
+ Test Files  1 passed (1)
+      Tests  26 passed (26)
+   Start at  13:38:48
+   Duration  1.30s (import 78%, transform 15%, tests 6%, worker 1%)
+
+
+step 2 - test real web
+[
+  {
+    "number": 1,
+    "title": "F-Droid 2.0",
+    "points": 494,
+    "comments": 151
+  },
+  {
+    "number": 2,
+    "title": "Creatine uptake enhances antitumor immunity",
+    "points": 47,
+    "comments": 34
+  },
+  {
+    "number": 3,
+    "title": "Show HN: Make cursed fonts like Times New Bastard",
+    "points": 60,
+    "comments": 16
+  },
+  {
+    "number": 4,
+    "title": "Show HN: Whiteboard (YC W26) – An open-source IDE for thoughtful software design",
+    "points": 79,
+    "comments": 20
+  },
+  {
+    "number": 5,
+    "title": "Rails World 2026 Opening Keynote [video]",
+    "points": 79,
+    "comments": 47
+  },
+  {
+    "number": 6,
+    "title": "Fearless SIMD v1.0",
+    "points": 49,
+    "comments": 8
+  },
+  {
+    "number": 7,
+    "title": "Stable (YC W20) Is Hiring Product Engineers",
+    "points": 0,
+    "comments": 0
+  },
+  {
+    "number": 8,
+    "title": "Why is the liver so weirdly regenerative?",
+    "points": 40,
+    "comments": 31
+  },
+  {
+    "number": 9,
+    "title": "The forgotten battle of East Lansing",
+    "points": 22,
+    "comments": 0
+  },
+  {
+    "number": 10,
+    "title": "Forging 1024-bit RSA signatures in nearly SNFS time [pdf]",
+    "points": 17,
+    "comments": 0
+  },
+  {
+    "number": 11,
+    "title": "Two-tier encryption in the UK",
+    "points": 300,
+    "comments": 296
+  },
+  {
+    "number": 12,
+    "title": "Book review: Is parallel programming hard, and, if so, what can you do about it?",
+    "points": 22,
+    "comments": 0
+  },
+  {
+    "number": 13,
+    "title": "Security auditing in the age of (good enough) AI",
+    "points": 16,
+    "comments": 1
+  },
+  {
+    "number": 14,
+    "title": "Geothermal heat map of US hot springs",
+    "points": 27,
+    "comments": 8
+  },
+  {
+    "number": 15,
+    "title": "WaveDigger: Dig into wireless signals to discover their physical locations",
+    "points": 48,
+    "comments": 7
+  },
+  {
+    "number": 16,
+    "title": "Motor Characterization for Small Running Robots (2016)",
+    "points": 13,
+    "comments": 0
+  },
+  {
+    "number": 17,
+    "title": "Nokia Design Archive (2025)",
+    "points": 186,
+    "comments": 97
+  },
+  {
+    "number": 18,
+    "title": "Show HN: Air-gapped file encryption as self-decrypting HTML page",
+    "points": 13,
+    "comments": 6
+  },
+  {
+    "number": 19,
+    "title": "My Weird New Hobby: Wandering Around Tokyo on Google Maps",
+    "points": 29,
+    "comments": 13
+  },
+  {
+    "number": 20,
+    "title": "GitHub has not removed malicious imitation software after 3 weeks",
+    "points": 177,
+    "comments": 73
+  },
+  {
+    "number": 21,
+    "title": "Experiencing writing at our recent Chinese calligraphy workshop",
+    "points": 14,
+    "comments": 1
+  },
+  {
+    "number": 22,
+    "title": "Show HN: AgentRun: DSL to turn agents into workflows",
+    "points": 16,
+    "comments": 1
+  },
+  {
+    "number": 23,
+    "title": "B5-BJ2 – Ice Cream Barges – Concrete Ship Constructors (2023)",
+    "points": 16,
+    "comments": 5
+  },
+  {
+    "number": 24,
+    "title": "Search – A small, fast WebKit browser for macOS",
+    "points": 40,
+    "comments": 4
+  },
+  {
+    "number": 25,
+    "title": "Ideas on modernizing the open-source desktop",
+    "points": 352,
+    "comments": 439
+  },
+  {
+    "number": 26,
+    "title": "Toyota is taking the Corolla electric",
+    "points": 99,
+    "comments": 106
+  },
+  {
+    "number": 27,
+    "title": "Show HN: Treepeat – Code similarity detection using Tree-sitter",
+    "points": 10,
+    "comments": 0
+  },
+  {
+    "number": 28,
+    "title": "The science of Monkey Island: can grog dissolve a metal mug that fast?",
+    "points": 111,
+    "comments": 23
+  },
+  {
+    "number": 29,
+    "title": "Is A.I. Above the Law?",
+    "points": 19,
+    "comments": 11
+  },
+  {
+    "number": 30,
+    "title": "A Million Agents Is a Distributed System Problem",
+    "points": 4,
+    "comments": 0
+  }
+]
+
+step 7 - dynamic audit label from system_config (each N h)
+
+ScrapeAndSave.integration.test.js no longer hardcodes "each 2 h";
+it builds filter_applied from the real system_config.frequency_hours
+via the new shared module backend/src/utils/schedule.js
+(buildSaveReason / scheduledFrequencyLabel / resolveFrequencyHours).
+
+Firestore system_config/global (before fix):
+  frequency_hours: 1, cron_expression: '0 */1 * * *', cron_enabled: true
+  -> old SCHEDULED logs still said "(each 2 h)" (written by the test)
+
+New SCHEDULED log written by the integration test after the fix:
+  2026-09-24T18:57:13.410Z | SCHEDULED | Scraping and save entries (each 1 h)
+
+Unit coverage: tests/schedule.test.js (10 tests).
+
+Test Files  10 passed (10)
+     Tests  115 passed (115)
+   Duration  12.84s
+
+Verbose highlights:
+  tests/schedule.test.js > schedule utils > 10 passed
+  tests/ScrapeAndSave.integration.test.js > manual: ... audits reason "(manual)" passed
+  tests/ScrapeAndSave.integration.test.js > scheduled: ... audits the configured frequency label ... passed
+      SCHEDULED flow -> { entriesCount: 30, frequency_hours: 1,
+        log: { filter_applied: 'Scraping and save entries (each 1 h)',
+               execution_type: 'SCHEDULED', results_count: 30 } }

@@ -96,7 +96,8 @@ Status legend: **[x]** completed · **[~]** completed with observation · **[ ]*
 
 - [x] `worker.js` fetch handler (manual HTTP API)
 - [x] `worker.js` scheduled handler (cron trigger)
-- [x] `wrangler.toml` with timed trigger (`0 */2 * * *`)
+- [x] `wrangler.toml` with base hourly trigger (`0 * * * *`)
+- [~] **Observation — Firestore-driven schedule:** the cron only wakes the Worker hourly; the real frequency is decided at runtime from `system_config` (`frequency_hours` + `last_run_hour`). `PUT /api/config` anchors `last_run_hour`; `handleScheduled` skips with `frequency_not_reached` until N hours elapse. No redeploy needed when changing frequency.
 - [~] **Observation — API key security (added requirement):** the main router enforces a **static API key** on every non-OPTIONS request (`x-api-key` or `Authorization: Bearer`). Missing/invalid key → **401**; server without configured key → **500** (fail-closed). Key stored in `wrangler.toml` `[vars] API_KEY`. CORS allows `x-api-key` and `authorization` headers. Covered by unit tests in `worker.test.js`.
 - [~] **Observation:** `NO_FILTER` must not be a named export of `worker.js` (workerd treats named exports as handlers)
 
@@ -105,14 +106,14 @@ Status legend: **[x]** completed · **[~]** completed with observation · **[ ]*
 - [x] Filter selector panel (`FilterControls`)
 - [x] Reactive results table (`ResultsTable`)
 - [x] Realtime logs component connected to Firestore via `onSnapshot`
-- [x] Execution mode selector (Manual vs scheduled frequency)
+- [x] Execution mode selector (Manual vs Scheduled) with frequency in hours persisted as `frequency_hours`
 - [x] Services: `api.js` (Worker HTTP client with API key header), `firebase.js` (init + subscriptions)
 - [~] **Observation:** results also default from `entries_cache` realtime subscription; API client sends `x-api-key` on every request
 
 ### Step 6 — UI refinement (AI-assisted phase)
 
 - [x] Friendly filter inputs (chips with icons/hints; default **All entries / NO_FILTER**)
-- [x] Friendly execution type inputs (segmented Manual/Scheduled + frequency select)
+- [x] Friendly execution type inputs (segmented Manual/Scheduled + frequency select → `frequency_hours`, meta `every Nh · last run …`)
 - [x] Logs opened from a **top menu button** (modal), not a fixed panel
 - [x] Execution settings also opened from the **top menu** (modal)
 - [x] Everything accessible in **one place** (single screen + modals)
@@ -139,6 +140,7 @@ Status legend: **[x]** completed · **[~]** completed with observation · **[ ]*
 - [~] **`NO_FILTER` endpoint & UI option** — unfiltered view by default; audits as `filter_applied: "NO_FILTER"`.
 - [~] **Phase 6 UI redesign** — `TopBar` + `Modal` + chip filters + results-first layout (implemented with AI assistance as specified in Step 6).
 - [~] **Results table client view controls** — text search, header sort, word-count filter; `ORDER`/`SEARCH` audit logs via `POST /api/logs` (see `frontend/src/utils/entriesView.js`).
+- [~] **Firestore-driven schedule** — hourly base wake (`0 * * * *`) + runtime gate (`frequency_hours`, `last_run_hour`); UI controls frequency without redeploying the Worker.
 - [ ] Production deployment (`wrangler deploy`, `wrangler secret put API_KEY`, frontend production URL) — not required for local evaluation; pending if needed.
 
 ---

@@ -2,13 +2,16 @@ import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { createFirestoreDb } from '../src/config/firebase.js';
 import { HackerNewsScraper } from '../src/services/HackerNewsScraper.js';
 import { FirestoreRepository } from '../src/repositories/FirestoreRepository.js';
+import { buildSaveReason, scheduledFrequencyLabel } from '../src/utils/schedule.js';
 
-const SCHEDULED_FREQUENCY_LABEL = 'each 2 h';
+const buildAuditReason = async (repository, executionType) => {
+  if (executionType !== 'SCHEDULED') {
+    return buildSaveReason(executionType);
+  }
 
-const buildSaveReason = (executionType) =>
-  executionType === 'SCHEDULED'
-    ? `Scraping and save entries (${SCHEDULED_FREQUENCY_LABEL})`
-    : 'Scraping and save entries (manual)';
+  const config = await repository.getSystemConfig();
+  return buildSaveReason('SCHEDULED', scheduledFrequencyLabel(config));
+};
 
 const scrapeAndSaveEntries = async ({ scraper, repository, executionType }) => {
   const flowStartedAt = performance.now();
@@ -24,7 +27,7 @@ const scrapeAndSaveEntries = async ({ scraper, repository, executionType }) => {
 
   const logPayload = {
     timestamp: new Date().toISOString(),
-    filter_applied: buildSaveReason(executionType),
+    filter_applied: await buildAuditReason(repository, executionType),
     results_count: entries.length,
     execution_type: executionType,
     execution_time_ms: executionTimeMs
@@ -90,10 +93,11 @@ describe('Scraping and save to Firebase - real flow', () => {
   );
 
   it(
-    'scheduled: scrapes real entries, saves them and audits reason "(each 2 h)" with real execution time',
+    'scheduled: scrapes real entries, saves them and audits the configured frequency label with real execution time',
     { timeout: 60000 },
     async () => {
       const logSpy = vi.spyOn(repository, 'saveUsageLog');
+      const config = await repository.getSystemConfig();
 
       const result = await scrapeAndSaveEntries({
         scraper,
@@ -108,6 +112,7 @@ describe('Scraping and save to Firebase - real flow', () => {
         executionTimeMs: result.logPayload.execution_time_ms,
         docId: result.docId,
         logId: result.logId,
+        frequency_hours: config.frequency_hours,
         log: result.logPayload
       });
 
@@ -115,9 +120,13 @@ describe('Scraping and save to Firebase - real flow', () => {
       expect(result.docId).toBe('latest');
       expect(result.logId).toBeTruthy();
 
+      const expectedReason = `Scraping and save entries (each ${config.frequency_hours} h)`;
+
+      expect(result.logPayload.filter_applied).toBe(expectedReason);
+
       expect(logSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          filter_applied: 'Scraping and save entries (each 2 h)',
+          filter_applied: expectedReason,
           results_count: 30,
           execution_type: 'SCHEDULED',
           execution_time_ms: expect.any(Number)
