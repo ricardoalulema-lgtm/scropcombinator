@@ -87,6 +87,46 @@ const generateEntries = (count) =>
 describe('HackerNewsScraper', () => {
   const scraper = new HackerNewsScraper();
 
+  const API_BASE = 'https://hacker-news.firebaseio.com/v0';
+  const TOPSTORIES_URL = `${API_BASE}/topstories.json`;
+
+  const apiItemUrl = (id) => `${API_BASE}/item/${id}.json`;
+
+  const json = (data, status = 200, statusText = 'OK') =>
+    new Response(JSON.stringify(data), {
+      status,
+      statusText,
+      headers: { 'content-type': 'application/json' }
+    });
+
+  const buildApiFetcher = ({
+    html = () => null,
+    ids = [11, 22, 33],
+    items = {
+      11: { id: 11, title: 'First API story', score: 100, descendants: 10 },
+      22: { id: 22, title: 'Second API story', score: 50, descendants: 5 },
+      33: { id: 33, title: 'Third API story', score: 25, descendants: 2 }
+    },
+    failingItems = []
+  } = {}) =>
+    vi.fn(async (url) => {
+      if (url.startsWith(API_BASE)) {
+        if (url === TOPSTORIES_URL) {
+          return json(ids);
+        }
+
+        const id = Number(url.match(/\/item\/(\d+)\.json$/)?.[1]);
+
+        if (failingItems.includes(id)) {
+          return json({ error: 'not found' }, 404, 'Not Found');
+        }
+
+        return json(items[id] ?? null);
+      }
+
+      return html();
+    });
+
   describe('parse', () => {
     it('returns exactly 30 entries when the HTML contains 32 athing rows', () => {
       const entries = scraper.parse(buildHtml(generateEntries(32)));
@@ -215,6 +255,135 @@ describe('HackerNewsScraper', () => {
       const mockScraper = new HackerNewsScraper(fetcher);
 
       await expect(mockScraper.scrape()).rejects.toThrow('404 Not Found');
+      expect(mockScraper.lastSource).toBeNull();
+    });
+
+    it('falls back to the official HN API when the HTML fetch returns 419', async () => {
+      const fetcher = buildApiFetcher({
+        html: () => new Response('Sorry', { status: 419, statusText: 'Sorry' })
+      });
+      const mockScraper = new HackerNewsScraper(fetcher);
+
+      const entries = await mockScraper.scrape();
+
+      expect(fetcher).toHaveBeenCalledWith(TOPSTORIES_URL);
+      expect(fetcher).toHaveBeenCalledWith(apiItemUrl(11));
+      expect(entries).toHaveLength(3);
+      expect(mockScraper.lastSource).toBe('api');
+    });
+
+    it('falls back to the official HN API when the fetch rejects with a network error', async () => {
+      const fetcher = buildApiFetcher({
+        html: () => {
+          throw new TypeError('fetch failed');
+        }
+      });
+      const mockScraper = new HackerNewsScraper(fetcher);
+
+      const entries = await mockScraper.scrape();
+
+      expect(entries).toHaveLength(3);
+      expect(mockScraper.lastSource).toBe('api');
+    });
+
+    it('falls back to the official HN API when HTML parses to zero entries', async () => {
+      const fetcher = buildApiFetcher({
+        html: () =>
+          new Response(
+            '<html><body><div>HN changed its markup</div></body></html>',
+            { status: 200 }
+          )
+      });
+      const mockScraper = new HackerNewsScraper(fetcher);
+
+      const entries = await mockScraper.scrape();
+
+      expect(entries).toHaveLength(3);
+      expect(mockScraper.lastSource).toBe('api');
+    });
+
+    it('uses the HTML source without calling the API when parsing succeeds', async () => {
+      const fetcher = buildApiFetcher({
+        html: () => new Response(buildHtml(defaultEntries), { status: 200 })
+      });
+      const mockScraper = new HackerNewsScraper(fetcher);
+
+      const entries = await mockScraper.scrape();
+
+      expect(entries).toHaveLength(5);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(mockScraper.lastSource).toBe('html');
+    });
+
+    it('throws a combined error when both the HTML and API sources fail', async () => {
+      const fetcher = vi.fn(
+        async () => new Response('Blocked', { status: 419, statusText: 'Sorry' })
+      );
+      const mockScraper = new HackerNewsScraper(fetcher);
+
+      await expect(mockScraper.scrape()).rejects.toThrow(
+        'Failed to fetch Hacker News from HTML and API. HTML: Failed to fetch Hacker News: 419 Sorry. API: Failed to fetch Hacker News API: 419 Sorry'
+      );
+      expect(mockScraper.lastSource).toBeNull();
+    });
+
+    it('maps API items to number, title, points and comments with 0 defaults', async () => {
+      const fetcher = buildApiFetcher({
+        html: () => new Response('Sorry', { status: 419, statusText: 'Sorry' }),
+        ids: [11, 22, 33],
+        items: {
+          11: { id: 11, title: '  API story title  ', score: 321, descendants: 55 },
+          22: { id: 22, title: 'API job without score' },
+          33: {
+            id: 33,
+            title: 'API story with zero comments',
+            score: 10,
+            descendants: 0
+          }
+        }
+      });
+      const mockScraper = new HackerNewsScraper(fetcher);
+
+      const entries = await mockScraper.scrape();
+
+      expect(entries).toEqual([
+        { number: 1, title: 'API story title', points: 321, comments: 55 },
+        { number: 2, title: 'API job without score', points: 0, comments: 0 },
+        { number: 3, title: 'API story with zero comments', points: 10, comments: 0 }
+      ]);
+    });
+
+    it('skips deleted or failing API items and renumbers the survivors', async () => {
+      const fetcher = buildApiFetcher({
+        html: () => new Response('Sorry', { status: 419, statusText: 'Sorry' }),
+        ids: [11, 22, 33],
+        items: {
+          11: { id: 11, title: 'First valid API story', score: 1, descendants: 2 },
+          33: { id: 33, title: 'Second valid API story', score: 3, descendants: 4 }
+        },
+        failingItems: [22]
+      });
+      const mockScraper = new HackerNewsScraper(fetcher);
+
+      const entries = await mockScraper.scrape();
+
+      expect(entries).toEqual([
+        { number: 1, title: 'First valid API story', points: 1, comments: 2 },
+        { number: 2, title: 'Second valid API story', points: 3, comments: 4 }
+      ]);
+    });
+
+    it('throws when the API returns no usable items', async () => {
+      const fetcher = buildApiFetcher({
+        html: () => new Response('Sorry', { status: 419, statusText: 'Sorry' }),
+        ids: [11],
+        items: { 11: null }
+      });
+      const mockScraper = new HackerNewsScraper(fetcher);
+
+      await expect(mockScraper.scrape()).rejects.toThrow(
+        'Failed to fetch Hacker News from HTML and API. HTML: Failed to fetch Hacker News: 419 Sorry. API: official HN API returned no usable items'
+      );
     });
   });
 });

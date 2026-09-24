@@ -92,6 +92,7 @@ Full-stack solution that scrapes the **top 30 Hacker News entries**, filters and
    - Saving the Execution modal (`PUT /api/config`) also **anchors** `last_run_hour` to the current hour, restarting the countdown.
    - The scheduled audit reason is built from the stored frequency: `Scraping and save entries (each N h)`.
    - Changing the frequency is a UI/Firestore edit only — **no redeploy**.
+7. **Data source fallback (dual source)** — the scraper prefers the `news.ycombinator.com` HTML source; it automatically falls back to the **official HN API** (`hacker-news.firebaseio.com/v0`) when the HTML fetch fails (network error or non-OK status such as **419**, returned because HN blocks Cloudflare IPs) **or** when the HTML parses to **0 entries** (HN changed its markup). Output shape, defaults (`points`/`comments` → `0`) and the 30-entry limit are identical from either source. If both sources fail, the request returns **500** with an error naming both causes; the used source is traceable via `lastSource` and the `[scraper] … using official HN API` log.
 
 ---
 
@@ -107,7 +108,7 @@ Full-stack solution that scrapes the **top 30 Hacker News entries**, filters and
 │   │   ├── utils/           # schedule.js (shared schedule/audit helpers)
 │   │   └── worker.js        # fetch + scheduled handlers
 │   ├── tests/               # Vitest unit + integration suites (see Test files)
-│   ├── wrangler.toml        # Cloudflare config, cron, API_KEY var
+│   ├── wrangler.toml        # Cloudflare config, cron trigger
 │   └── package.json
 ├── frontend/
 │   ├── src/
@@ -131,7 +132,7 @@ Full-stack solution that scrapes the **top 30 Hacker News entries**, filters and
 
 - **Node.js 20+** and npm
 - **Git**
-- Network access to `news.ycombinator.com` and Firestore (integration tests / realtime)
+- Network access to `news.ycombinator.com`, `hacker-news.firebaseio.com` (fallback) and Firestore (integration tests / realtime)
 - Two terminals (backend + frontend)
 
 ```bash
@@ -156,9 +157,9 @@ npx wrangler --version
 npx wrangler dev --port 8787
 ```
 
-`wrangler.toml` provides `[vars] API_KEY` for local use. Firestore credentials fall back to `src/config/firebaseConfig.js` (project `test-2eb64`).
+`API_KEY` is **not** stored in `wrangler.toml` (a `[vars]` binding coexisting with the Cloudflare secret is rejected at deploy: `10053`). Local dev reads the gitignored file `backend/.dev.vars`; production reads the secret set with `wrangler secret put API_KEY`. Firestore credentials fall back to `src/config/firebaseConfig.js` (project `test-2eb64`).
 
-Optional local secrets file `backend/.dev.vars` (read only by `wrangler dev`):
+Local secrets file `backend/.dev.vars` (read only by `wrangler dev`, never committed):
 
 ```bash
 API_KEY=your-local-secret-key
@@ -413,7 +414,7 @@ Historical results per step are recorded in `testresults.me`.
 |---|---|---|
 | `WordCounter.test.js` | Unit | Word-count rules: `\s+` split, isolated symbols excluded, `"This is - a self-explained example"` = 5, empty/null edge cases |
 | `FilterStrategies.test.js` | Unit | `MORE_THAN_5_WORDS_BY_COMMENTS` / `LESS_OR_EQUAL_5_WORDS_BY_POINTS`: filtering, sort order, immutability, LSP substitutability |
-| `HackerNewsScraper.test.js` | Unit | HTML parsing (mocked fetch): 30 entries from `tr.athing`, entity decode, missing score, “discuss”, “1 comment”, no comments link, HTTP error |
+| `HackerNewsScraper.test.js` | Unit | HTML parsing (mocked fetch): 30 entries from `tr.athing`, entity decode, missing score, “discuss”, “1 comment”, no comments link, HTTP error — plus **HN API fallback**: all 3 triggers (419, network error, 0 entries), field mapping/defaults, skipped items renumbering, combined error when both sources fail |
 | `HackerNewsScraperWeb.test.js` | Integration (live web) | Real scrape of `news.ycombinator.com` → 30 JSON entries (`npm run test:web`) |
 | `FirestoreRepository.test.js` | Unit | Abstract `BaseRepository` (DIP/LSP) + SDK repository: `saveUsageLog` fields, `execution_type` MANUAL/SCHEDULED/ORDER/SEARCH, invalid type rejected, `saveEntries`, `getSystemConfig`, `updateSystemConfig` |
 | `FirestoreRepository.integration.test.js` | Integration (live Firestore) | Real writes/reads for entries, usage logs, system config (`npm run test:firestore`) |
@@ -438,6 +439,7 @@ Historical results per step are recorded in `testresults.me`.
 | **Two repository implementations** | The official Firebase SDK does **not** run on Cloudflare Workers (no gRPC/WebChannel). `FirestoreRepository` (SDK) is primary for Node/tests; `FirestoreRestRepository` (Firestore REST API + `fetch`) serves the Worker. Both implement `BaseRepository` (DIP). |
 | **Strategy pattern for filters** | OCP: new filters without modifying existing classes; easy unit testing with injected `WordCounter`. |
 | **Cheerio for scraping** | Server-side HTML parsing without a browser; fast and testable with fixture HTML. |
+| **Official HN API fallback** | Cloudflare Worker IPs are blocked by `news.ycombinator.com` (HTTP **419 "Sorry"**) and markup changes would silently yield 0 entries, so `scrape()` keeps cheerio as primary and falls back to `hacker-news.firebaseio.com/v0` (`topstories` + `item/<id>`, 31 subrequests — free limit is 50) on network error, non-OK status, or an empty parse; field mapping is `score → points`, `descendants → comments` (default `0`). Both sources failing → combined **500** error. |
 | **Static API key on every HTTP request** | Lightweight auth so arbitrary clients cannot GET/PUT the API; header `x-api-key` or `Authorization: Bearer`. OPTIONS (CORS preflight) is exempt. Key lives in `wrangler.toml [vars]` locally; use `wrangler secret put API_KEY` in production. |
 | **Realtime via `onSnapshot`** | Audit logs and `entries_cache` update without polling; matches the architecture diagram. |
 | **`NO_FILTER` default in UI** | Users see results immediately from cache; filters are opt-in. |

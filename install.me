@@ -36,7 +36,7 @@ Step-by-step guide to install, configure, run and deploy **backend** (Cloudflare
 | **Git** | any recent | Clone the repository |
 | **Cloudflare account** | Free tier is enough | Host the Worker + cron |
 | **Wrangler CLI** | installed as backend devDependency (`npx wrangler`) | Local dev & deploy |
-| Network access | — | `news.ycombinator.com`, `firestore.googleapis.com`, Cloudflare |
+| Network access | — | `news.ycombinator.com`, `hacker-news.firebaseio.com` (fallback), `firestore.googleapis.com`, Cloudflare |
 
 Optional:
 
@@ -346,6 +346,7 @@ npx vitest run tests/worker.test.js --reporter=verbose
 ```
 
 > Integration tests write to the real Firebase project and hit the live HN site — network required.
+> The scraper prefers the `news.ycombinator.com` HTML source and automatically falls back to the official HN API (`hacker-news.firebaseio.com`) when the HTML fetch fails (network error / HTTP 419) or parses to 0 entries; `HackerNewsScraper.test.js` covers all three triggers with mocked fetchers.
 
 ### Frontend
 
@@ -605,7 +606,8 @@ CORS: the Worker already returns `access-control-allow-origin: *`, so the Pages 
 | HTTP **500** `API key is not configured` | `API_KEY` missing in env/vars/secrets | Add `[vars]` or `wrangler secret put API_KEY` |
 | HTTP **401** from UI | Frontend key ≠ Worker key | Align `VITE_API_KEY` with `API_KEY`; restart Vite / rebuild |
 | UI loads but logs empty | Firestore rules block read, or no data yet | Allow read for `usage_logs` in rules; trigger a filter run |
-| Scrape 500 from Worker | Outbound fetch to HN failed | Check network/URL; inspect Worker logs |
+| Scrape 500 from Worker | Both HTML **and** official HN API failed | Error message shows `Failed to fetch Hacker News from HTML and API. HTML: … API: …`; check network / HN status in Worker logs |
+| Scrape works but logs show `419 Sorry` from `news.ycombinator.com` | HN blocks Cloudflare IPs (HTML source) | Expected in prod — the scraper auto-falls back to `hacker-news.firebaseio.com`; look for `[scraper] … using official HN API` and `lastSource: "api"` |
 | Cron never runs in prod | Trigger not deployed, `cron_enabled` false, or `frequency_hours` not elapsed (`frequency_not_reached`) | Redeploy; save UI schedule (`cron_enabled: true`); wait `frequency_hours` since `last_run_hour` |
 | Cron does not run in `wrangler dev` | Expected — local crons are manual | `curl http://127.0.0.1:8787/cdn-cgi/local/scheduled` |
 | Env changes ignored | Vite caches env at process start | Restart `npm run dev` / rebuild |

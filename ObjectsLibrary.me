@@ -225,7 +225,10 @@ Keeps entries with **5 or fewer** title words (includes boundary `=== 5`); sorts
 HackerNewsScraper
     │ fetcher (injectable)
     ▼
-news.ycombinator.com ──HTML──► cheerio parse ──► Entry[30]
+news.ycombinator.com ──HTML──► cheerio parse ──► Entry[30]   (primary)
+    │ 419 / network error / 0 entries parsed
+    ▼
+hacker-news.firebaseio.com/v0 ──topstories + item/<id>──► Entry[30]   (fallback)
     ▲
     │ called by
 handleEntriesQuery / handleManualScrape / handleScheduled (worker.js)
@@ -235,19 +238,24 @@ handleEntriesQuery / handleManualScrape / handleScheduled (worker.js)
 |---|---|
 | Worker handlers | Call `scrape()` as the data source for API and cron flows. |
 | Entry objects | Output shape: `{ number, title, points, comments }`. |
+| Official HN API | Fallback source when the HTML source is unavailable. |
 | Global `fetch` | Default fetcher; tests inject a mock fetcher (DIP). |
 
 ### Description & characteristics
 
 Fetches and parses Hacker News HTML. Limits output to **30** entries. Handles missing points (“0”) and missing comments (“discuss” / absent link → `0`).
 
+**Fallback to the official HN API:** Cloudflare Workers IPs are blocked by `news.ycombinator.com` (HTTP 419 “Sorry”), and HN markup changes would silently yield 0 entries. `scrape()` therefore keeps cheerio as the primary source and switches to `https://hacker-news.firebaseio.com/v0` when **any** of these triggers fires: (1) network error, (2) non-OK HTTP status, (3) HTML parses to **0 entries**. API mapping: `number` = position in `topstories.json`, `title` = `item.title`, `points` = `item.score` (default `0`), `comments` = `item.descendants` (default `0`); deleted/unusable items are skipped and survivors renumbered. Fallback cost: 1 + 30 = **31 subrequests** (free plan limit: 50). If **both** sources fail, it throws a combined error (Worker → HTTP 500). Traceability: `console.log('[scraper] HTML source unavailable (...); using official HN API')` and `this.lastSource = 'html' | 'api' | null`.
+
 ### Variables
 
 | Name | Type | Description |
 |---|---|---|
 | `DEFAULT_URL` | `string` (const) | `https://news.ycombinator.com/`. |
+| `API_BASE_URL` | `string` (const) | `https://hacker-news.firebaseio.com/v0`. |
 | `MAX_ENTRIES` | `number` (const) | `30`. |
 | `this.fetcher` | `function` | `(url) => Response` — injectable HTTP client. |
+| `this.lastSource` | `string \| null` | `'html'`, `'api'`, or `null` after the last `scrape()`. |
 
 ### Constructor
 
@@ -259,7 +267,9 @@ Fetches and parses Hacker News HTML. Limits output to **30** entries. Handles mi
 
 | Method | What it does |
 |---|---|
-| `scrape(url?)` | Fetches HTML then parses; returns `Entry[]` (max 30). |
+| `scrape(url?)` | Tries HTML first; on trigger (error or 0 entries) falls back to `scrapeViaApi()`; returns `Entry[]` (max 30). Throws a combined HTML+API error when both fail. |
+| `scrapeViaApi()` | Fetches `topstories.json`, then `item/<id>.json` in parallel (`Promise.allSettled`); maps to `Entry[]`, skipping unusable items. |
+| `fetchJson(url)` | Calls `fetcher`; throws on non-OK response; returns parsed JSON body. |
 | `fetchHtml(url)` | Calls `fetcher`; throws on non-OK response; returns text body. |
 | `parse(html)` | Cheerio load; walks `tr.athing` rows; builds entries with ordinal `number`, title, parsed points/comments. |
 
@@ -483,7 +493,7 @@ createServices(env)
 | Related object | Relationship |
 |---|---|
 | `HackerNewsScraper`, strategies, `FirestoreRestRepository` | Assembled in `createServices` and injected into handlers. |
-| `wrangler.toml` `[vars]` | Supplies `API_KEY` (and optional Firebase env overrides). |
+| `wrangler secret` / `backend/.dev.vars` | Supplies `API_KEY` (secret in production; gitignored `.dev.vars` in local dev — `wrangler.toml` has no `[vars] API_KEY`). |
 | Frontend `api.js` | HTTP client calling these routes with `x-api-key`. |
 
 ### Description & characteristics
@@ -996,7 +1006,7 @@ App ──► api.fetchEntries / scrapeNow / getSystemConfig / updateSystemConfi
 | Related object | Relationship |
 |---|---|
 | Worker routes | 1:1 mapping to backend endpoints. |
-| `wrangler.toml` API_KEY | Client must send matching `VITE_API_KEY` / default. |
+| Worker `API_KEY` (secret / `.dev.vars`) | Client must send matching `VITE_API_KEY` / default. |
 
 ### Description & characteristics
 

@@ -83,6 +83,7 @@ Status legend: **[x]** completed · **[~]** completed with observation · **[ ]*
 - [x] `HackerNewsScraper.js` with cheerio, first 30 records, edge cases
 - [x] `HackerNewsScraper.test.js` with mocked HTML/fetch
 - [~] **Observation:** extra real-site smoke test `HackerNewsScraperWeb.test.js` (`npm run test:web`)
+- [~] **Observation — HN API fallback (added requirement):** HN blocks Cloudflare IPs (HTTP **419 "Sorry"**) and markup changes would yield 0 entries, so `scrape()` keeps cheerio as primary source and falls back to the official API (`hacker-news.firebaseio.com/v0`) on: (1) network error, (2) non-OK status, (3) parse to 0 entries. Field mapping `score→points`, `descendants→comments` (default 0); 31 subrequests/fallback (free limit 50); both sources failing → 500 with combined error. Trace: `lastSource` + `[scraper] … using official HN API` log. 8 new tests (suite: 123).
 
 ### Step 3 — Persistence & audit (Firebase)
 
@@ -98,7 +99,7 @@ Status legend: **[x]** completed · **[~]** completed with observation · **[ ]*
 - [x] `worker.js` scheduled handler (cron trigger)
 - [x] `wrangler.toml` with base hourly trigger (`0 * * * *`)
 - [~] **Observation — Firestore-driven schedule:** the cron only wakes the Worker hourly; the real frequency is decided at runtime from `system_config` (`frequency_hours` + `last_run_hour`). `PUT /api/config` anchors `last_run_hour`; `handleScheduled` skips with `frequency_not_reached` until N hours elapse. No redeploy needed when changing frequency.
-- [~] **Observation — API key security (added requirement):** the main router enforces a **static API key** on every non-OPTIONS request (`x-api-key` or `Authorization: Bearer`). Missing/invalid key → **401**; server without configured key → **500** (fail-closed). Key stored in `wrangler.toml` `[vars] API_KEY`. CORS allows `x-api-key` and `authorization` headers. Covered by unit tests in `worker.test.js`.
+- [~] **Observation — API key security (added requirement):** the main router enforces a **static API key** on every non-OPTIONS request (`x-api-key` or `Authorization: Bearer`). Missing/invalid key → **401**; server without configured key → **500** (fail-closed). Key stored as a Cloudflare secret (`wrangler secret put API_KEY`); local dev uses gitignored `backend/.dev.vars` (Cloudflare rejects a `[vars] API_KEY` binding coexisting with the secret: `10053`). CORS allows `x-api-key` and `authorization` headers. Covered by unit tests in `worker.test.js`.
 - [~] **Observation:** `NO_FILTER` must not be a named export of `worker.js` (workerd treats named exports as handlers)
 
 ### Step 5 — Frontend (React + Vite)
