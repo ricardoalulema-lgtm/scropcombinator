@@ -4,14 +4,14 @@ import { MoreThanFiveWordsStrategy } from './services/strategies/MoreThanFiveWor
 import { LessOrEqualFiveWordsStrategy } from './services/strategies/LessOrEqualFiveWordsStrategy.js';
 import { FirestoreRestRepository } from './repositories/FirestoreRestRepository.js';
 
-// Headers CORS para permitir que el backend responda desde distintos orígenes.
+// CORS headers to allow the backend to respond from different origins.
 const CORS_HEADERS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET, POST, PUT, OPTIONS',
   'access-control-allow-headers': 'content-type, x-api-key, authorization'
 };
 
-// Función auxiliar para devolver respuestas JSON con el código de estado indicado.
+// Helper function to return JSON responses with the specified status code.
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data, null, 2), {
     status,
@@ -21,13 +21,13 @@ const json = (data, status = 200) =>
     }
   });
 
-// Genera un texto descriptivo para el log de la ejecución según el tipo.
+// Generates a descriptive text for the execution log based on the type.
 const buildSaveReason = (executionType, frequencyLabel) =>
   executionType === 'SCHEDULED'
     ? `Scraping and save entries (${frequencyLabel})`
     : 'Scraping and save entries (manual)';
 
-// Traduce una expresión cron a un texto más legible para los logs.
+// Converts a cron expression into a more readable label for logs.
 const describeFrequency = (cronExpression) => {
   const hourlyMatch = /^0 \*\/(\d{1,3}) \* \* \*$/.exec(cronExpression ?? '');
 
@@ -38,7 +38,7 @@ const describeFrequency = (cronExpression) => {
   return cronExpression ?? 'custom';
 };
 
-// Extrae la API key enviada en la petición (x-api-key o Authorization Bearer).
+// Extracts the API key sent in the request (x-api-key or Authorization Bearer).
 const extractApiKey = (request) => {
   const headerKey = request.headers.get('x-api-key');
 
@@ -58,7 +58,7 @@ const extractApiKey = (request) => {
   return null;
 };
 
-// Compara la clave recibida con la clave estática configurada en el entorno.
+// Compares the incoming key with the static key configured in the environment.
 const isAuthorized = (request, apiKey) => {
   if (!apiKey) {
     return false;
@@ -68,44 +68,44 @@ const isAuthorized = (request, apiKey) => {
   return providedKey !== null && providedKey === apiKey;
 };
 
-// Crea la instancia de todos los servicios que usará el worker.
+// Creates all the services used by the worker.
 export const createServices = (env = {}) => {
-  // Repositorio encargado de guardar data y configuración en Firestore.
+  // Repository responsible for saving data and configuration in Firestore.
   const repository = new FirestoreRestRepository({
     projectId: env.FIREBASE_PROJECT_ID,
     apiKey: env.FIREBASE_API_KEY
   });
 
-  // Contador de palabras reutilizable para las estrategias de filtrado.
+  // Reusable word counter for filtering strategies.
   const wordCounter = new WordCounter();
 
   return {
-    // Lector que obtiene noticias desde Hacker News.
+    // Reader that fetches news from Hacker News.
     scraper: new HackerNewsScraper(),
     wordCounter,
-    // Estrategias disponibles para filtrar resultados.
+    // Available strategies for filtering results.
     strategies: {
       MORE_THAN_5_WORDS_BY_COMMENTS: new MoreThanFiveWordsStrategy(wordCounter),
       LESS_OR_EQUAL_5_WORDS_BY_POINTS: new LessOrEqualFiveWordsStrategy(wordCounter)
     },
     repository,
-    // API key estática requerida en cada petición HTTP.
+    // Static API key required for each HTTP request.
     apiKey: env.API_KEY
   };
 };
 
-// Filtro especial que devuelve las entradas sin aplicar estrategia.
+// Special filter that returns entries without applying any strategy.
 const NO_FILTER = 'NO_FILTER';
 
 const listValidFilters = (services) => [NO_FILTER, ...Object.keys(services.strategies)];
 
-// Maneja una petición GET con un filtro específico en la query string.
+// Handles a GET request with a specific filter in the query string.
 const handleEntriesQuery = async (url, services) => {
   const filterId = url.searchParams.get('filter');
   const strategy = services.strategies[filterId];
   const isNoFilter = filterId === NO_FILTER || filterId === null || filterId === '';
 
-  // Si el filtro no existe, devuelve un error 400 con los filtros válidos.
+  // If the filter does not exist, return a 400 error with valid filters.
   if (!strategy && !isNoFilter) {
     return json(
       {
@@ -116,14 +116,14 @@ const handleEntriesQuery = async (url, services) => {
     );
   }
 
-  // Ejecuta el scraping y aplica el filtro elegido (o ninguno si es NO_FILTER).
+  // Executes the scrape and applies the selected filter (or none when it is NO_FILTER).
   const startedAt = performance.now();
   const entries = await services.scraper.scrape();
   const results = strategy ? strategy.apply(entries) : entries;
   const appliedFilter = strategy ? filterId : NO_FILTER;
   const executionTimeMs = Math.round(performance.now() - startedAt);
 
-  // Guarda un registro del uso con la categoría del filtro aplicado.
+  // Saves a usage log describing which filter was used.
   const logId = await services.repository.saveUsageLog({
     timestamp: new Date().toISOString(),
     filter_applied: appliedFilter,
@@ -141,7 +141,7 @@ const handleEntriesQuery = async (url, services) => {
   });
 };
 
-// Realiza un scraping manual y guarda todas las entradas sin filtrar.
+// Performs a manual scrape and saves all entries without filtering.
 const handleManualScrape = async (services) => {
   const startedAt = performance.now();
   const entries = await services.scraper.scrape();
@@ -166,13 +166,13 @@ const handleManualScrape = async (services) => {
   });
 };
 
-// Obtiene la configuración actual del sistema desde Firestore.
+// Retrieves the current system configuration from Firestore.
 const handleGetConfig = async (services) => {
   const config = await services.repository.getSystemConfig();
   return json(config);
 };
 
-// Actualiza la configuración del sistema con un JSON enviado en la petición.
+// Updates the system configuration using JSON sent in the request body.
 const handleUpdateConfig = async (request, services) => {
   let payload;
 
@@ -190,20 +190,20 @@ const handleUpdateConfig = async (request, services) => {
   return json(config);
 };
 
-// Enrutador principal para manejar todas las peticiones HTTP del worker.
+// Main router for handling all HTTP requests to the worker.
 export const handleFetch = async (request, services) => {
   try {
-    // Responde a peticiones OPTIONS para CORS preflight.
+    // Responds to OPTIONS requests for CORS preflight.
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
-    // Bloquea cualquier método si el servidor no tiene API key configurada.
+    // Blocks any method if the server does not have an API key configured.
     if (!services.apiKey) {
       return json({ error: 'API key is not configured on the server' }, 500);
     }
 
-    // Exige la API key estática en cada petición (GET, PUT, POST, DELETE).
+    // Requires the static API key in every request (GET, PUT, POST, DELETE).
     if (!isAuthorized(request, services.apiKey)) {
       return json(
         {
@@ -217,7 +217,7 @@ export const handleFetch = async (request, services) => {
     const url = new URL(request.url);
     const { pathname } = url;
 
-    // Ruta base: información del servicio y endpoints disponibles.
+    // Base route: service information and available endpoints.
     if (request.method === 'GET' && pathname === '/') {
       return json({
         service: 'hacker-news-scraper',
@@ -231,17 +231,17 @@ export const handleFetch = async (request, services) => {
       });
     }
 
-    // Ruta para consultar entradas filtradas.
+    // Route to query filtered entries.
     if (request.method === 'GET' && pathname === '/api/entries') {
       return await handleEntriesQuery(url, services);
     }
 
-    // Ruta para disparar un scrape manual.
+    // Route to trigger a manual scrape.
     if (request.method === 'GET' && pathname === '/api/scrape') {
       return await handleManualScrape(services);
     }
 
-    // Rutas de configuración del sistema.
+    // System configuration routes.
     if (pathname === '/api/config') {
       if (request.method === 'GET') {
         return await handleGetConfig(services);
@@ -252,19 +252,19 @@ export const handleFetch = async (request, services) => {
       }
     }
 
-    // Ruta no encontrada.
+    // Route not found.
     return json({ error: `Route not found: ${request.method} ${pathname}` }, 404);
   } catch (error) {
-    // Cualquier error interno genera una respuesta 500 con el mensaje.
+    // Any internal error returns a 500 response with the message.
     return json({ error: error.message }, 500);
   }
 };
 
-// Ejecuta el scraper de manera automática si el cron está habilitado.
+// Executes the scraper automatically when the cron is enabled.
 export const handleScheduled = async (services) => {
   const config = await services.repository.getSystemConfig();
 
-  // Si cron está desactivado, no hace nada.
+  // If cron is disabled, do nothing.
   if (!config.cron_enabled) {
     console.log('[scheduled] skipped: cron_enabled is false');
     return { skipped: true, reason: 'cron_disabled' };
@@ -297,13 +297,13 @@ export const handleScheduled = async (services) => {
   return result;
 };
 
-// Exporta la lógica que Cloudflare Worker ejecuta al recibir peticiones HTTP.
+// Exports the logic that Cloudflare Worker executes when receiving HTTP requests.
 export default {
   async fetch(request, env, ctx) {
     return handleFetch(request, createServices(env));
   },
 
-  // Exporta la lógica para ejecuciones programadas por cron.
+  // Exports the logic for scheduled cron executions.
   async scheduled(event, env, ctx) {
     return handleScheduled(createServices(env));
   }

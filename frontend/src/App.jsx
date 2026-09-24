@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import TopBar from './components/TopBar.jsx';
+import Modal from './components/Modal.jsx';
 import FilterControls from './components/FilterControls.jsx';
 import ResultsTable from './components/ResultsTable.jsx';
 import AuditLogsTable from './components/AuditLogsTable.jsx';
@@ -23,6 +25,7 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState(null);
   const [error, setError] = useState(null);
+  const [openPanel, setOpenPanel] = useState(null);
 
   const displayedResults = results ?? cachedEntries;
   const resultsSource = results ? 'api' : cachedEntries.length > 0 ? 'cache' : 'empty';
@@ -111,7 +114,8 @@ export default function App() {
     try {
       const data = await updateSystemConfig(payload);
       setConfig(data);
-      setNotice('Configuration saved');
+      setNotice('Execution settings saved');
+      setOpenPanel(null);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -149,16 +153,18 @@ export default function App() {
   };
 
   return (
-    <main className="app">
-      <header>
-        <h1>Hacker News Scraper</h1>
-        <p className="subtitle">Filter, audit and schedule the top 30 Hacker News entries</p>
-      </header>
+    <div className="app-shell">
+      <TopBar
+        logCount={logs.length}
+        mode={mode}
+        onOpenLogs={() => setOpenPanel('logs')}
+        onOpenSchedule={() => setOpenPanel('schedule')}
+      />
 
-      {notice && <p className="notice">{notice}</p>}
-      {error && <p className="error">{error}</p>}
+      <main className="app-main">
+        {notice && <p className="notice">{notice}</p>}
+        {error && <p className="error">{error}</p>}
 
-      <div className="grid">
         <FilterControls
           selectedFilter={selectedFilter}
           onSelectFilter={handleSelectFilter}
@@ -166,17 +172,31 @@ export default function App() {
           onScrape={runScrape}
           loading={loading}
         />
+
+        <ResultsTable results={displayedResults} meta={meta} source={resultsSource} />
+      </main>
+
+      <Modal open={openPanel === 'logs'} title="Audit logs" onClose={() => setOpenPanel(null)}>
+        <AuditLogsTable logs={logs} error={logsError} />
+      </Modal>
+
+      <Modal
+        open={openPanel === 'schedule'}
+        title="Execution type"
+        onClose={() => setOpenPanel(null)}
+        footer={
+          <button type="button" className="button-primary" onClick={saveConfig} disabled={saving}>
+            {saving ? 'Saving…' : 'Save execution settings'}
+          </button>
+        }
+      >
         <ScheduleConfig
           config={config}
           mode={mode}
           onModeChange={handleModeChange}
           onFrequencyChange={handleFrequencyChange}
-          onSave={saveConfig}
-          saving={saving}
         />
-        <ResultsTable results={displayedResults} meta={meta} source={resultsSource} />
-        <AuditLogsTable logs={logs} error={logsError} />
-      </div>
-    </main>
+      </Modal>
+    </div>
   );
 }

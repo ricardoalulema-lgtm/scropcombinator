@@ -1,50 +1,63 @@
 const FILTERS = [
   {
     id: 'NO_FILTER',
-    label: 'No filter (show all)',
-    description: 'All 30 entries as scraped, original order'
+    label: 'All entries',
+    hint: 'No filter · original order',
+    icon: '☰'
   },
   {
     id: 'MORE_THAN_5_WORDS_BY_COMMENTS',
-    label: 'More than 5 words (by comments)',
-    description: 'Titles with more than 5 words, sorted by comments desc'
+    label: '> 5 words',
+    hint: 'Long titles · by comments',
+    icon: '💬'
   },
   {
     id: 'LESS_OR_EQUAL_5_WORDS_BY_POINTS',
-    label: '5 words or fewer (by points)',
-    description: 'Titles with 5 words or fewer, sorted by points desc'
+    label: '≤ 5 words',
+    hint: 'Short titles · by points',
+    icon: '★'
   }
 ];
 
 export const FilterControls = ({ selectedFilter, onSelectFilter, onRun, onScrape, loading }) => (
-  <section className="panel">
-    <h2>Filters</h2>
-    <div className="filter-options" role="radiogroup" aria-label="Filter selector">
-      {FILTERS.map((filter) => (
-        <label
-          key={filter.id}
-          className={`filter-option ${selectedFilter === filter.id ? 'selected' : ''}`}
-        >
-          <input
-            type="radio"
-            name="filter"
-            value={filter.id}
-            checked={selectedFilter === filter.id}
-            onChange={() => onSelectFilter(filter.id)}
-          />
-          <span className="filter-label">{filter.label}</span>
-          <span className="filter-description">{filter.description}</span>
-        </label>
-      ))}
+  <section className="filter-bar" aria-label="Filter controls">
+    <div className="filter-bar-row">
+      <div className="chip-group" role="radiogroup" aria-label="Choose a filter">
+        {FILTERS.map((filter) => {
+          const active = selectedFilter === filter.id;
+
+          return (
+            <button
+              key={filter.id}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              className={`chip ${active ? 'chip-active' : ''}`}
+              onClick={() => onSelectFilter(filter.id)}
+              title={filter.hint}
+            >
+              <span className="chip-icon" aria-hidden="true">
+                {filter.icon}
+              </span>
+              <span className="chip-label">{filter.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="filter-bar-actions">
+        <button type="button" className="button-primary" onClick={onRun} disabled={loading}>
+          {loading ? 'Working…' : selectedFilter === 'NO_FILTER' ? 'Load all' : 'Apply filter'}
+        </button>
+        <button type="button" className="button-ghost" onClick={onScrape} disabled={loading}>
+          Scrape &amp; save
+        </button>
+      </div>
     </div>
-    <div className="actions">
-      <button type="button" onClick={onRun} disabled={loading}>
-        {loading ? 'Running…' : selectedFilter === 'NO_FILTER' ? 'Load all entries' : 'Run filter'}
-      </button>
-      <button type="button" className="secondary" onClick={onScrape} disabled={loading}>
-        Scrape &amp; save now
-      </button>
-    </div>
+
+    <p className="filter-bar-hint">
+      {FILTERS.find((filter) => filter.id === selectedFilter)?.hint}
+    </p>
   </section>
 );
 
