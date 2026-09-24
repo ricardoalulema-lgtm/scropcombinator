@@ -4,6 +4,8 @@ import { WordCounter } from '../src/services/WordCounter.js';
 import { MoreThanFiveWordsStrategy } from '../src/services/strategies/MoreThanFiveWordsStrategy.js';
 import { LessOrEqualFiveWordsStrategy } from '../src/services/strategies/LessOrEqualFiveWordsStrategy.js';
 
+const API_KEY = 'test-static-api-key';
+
 const entriesFixture = [
   { number: 1, title: 'Short title here', points: 300, comments: 40 },
   {
@@ -35,13 +37,19 @@ const buildServices = (config = { cron_enabled: true, cron_expression: '0 */2 * 
       saveEntries: vi.fn(async () => 'latest'),
       getSystemConfig: vi.fn(async () => ({ ...config })),
       updateSystemConfig: vi.fn(async (payload) => ({ ...config, ...payload }))
-    }
+    },
+    apiKey: API_KEY
   };
 };
 
+const authHeaders = (extra = {}) => ({ 'x-api-key': API_KEY, ...extra });
+
 describe('worker - fetch handler', () => {
-  it('returns service info on GET /', async () => {
-    const response = await handleFetch(new Request('http://localhost/'), buildServices());
+  it('returns service info on GET / with a valid API key', async () => {
+    const response = await handleFetch(
+      new Request('http://localhost/', { headers: authHeaders() }),
+      buildServices()
+    );
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -49,7 +57,7 @@ describe('worker - fetch handler', () => {
     expect(body.status).toBe('ok');
   });
 
-  it('answers OPTIONS with CORS headers', async () => {
+  it('answers OPTIONS with CORS headers without requiring an API key', async () => {
     const response = await handleFetch(
       new Request('http://localhost/api/entries', { method: 'OPTIONS' }),
       buildServices()
@@ -57,12 +65,86 @@ describe('worker - fetch handler', () => {
 
     expect(response.status).toBe(204);
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
+    expect(response.headers.get('access-control-allow-headers')).toContain('x-api-key');
+  });
+
+  it('rejects any request without an API key with 401', async () => {
+    const services = buildServices();
+
+    const getResponse = await handleFetch(
+      new Request('http://localhost/api/entries?filter=MORE_THAN_5_WORDS_BY_COMMENTS'),
+      services
+    );
+    const putResponse = await handleFetch(
+      new Request('http://localhost/api/config', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ cron_enabled: false })
+      }),
+      services
+    );
+
+    const getBody = await getResponse.json();
+    const putBody = await putResponse.json();
+
+    expect(getResponse.status).toBe(401);
+    expect(getBody.error).toContain('Unauthorized');
+    expect(putResponse.status).toBe(401);
+    expect(putBody.error).toContain('Unauthorized');
+    expect(services.scraper.scrape).not.toHaveBeenCalled();
+    expect(services.repository.updateSystemConfig).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid API key with 401', async () => {
+    const services = buildServices();
+    const response = await handleFetch(
+      new Request('http://localhost/api/config', {
+        headers: { 'x-api-key': 'wrong-key' }
+      }),
+      services
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(body.error).toContain('Unauthorized');
+    expect(services.repository.getSystemConfig).not.toHaveBeenCalled();
+  });
+
+  it('accepts the API key via Authorization Bearer header', async () => {
+    const response = await handleFetch(
+      new Request('http://localhost/api/config', {
+        headers: { authorization: `Bearer ${API_KEY}` }
+      }),
+      buildServices()
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      cron_enabled: true,
+      cron_expression: '0 */2 * * *'
+    });
+  });
+
+  it('returns 500 when the server has no API key configured', async () => {
+    const services = buildServices();
+    services.apiKey = undefined;
+
+    const response = await handleFetch(
+      new Request('http://localhost/api/config', { headers: authHeaders() }),
+      services
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.error).toBe('API key is not configured on the server');
+    expect(services.repository.getSystemConfig).not.toHaveBeenCalled();
   });
 
   it('rejects an unknown filter with 400 and the valid filter list', async () => {
     const services = buildServices();
     const response = await handleFetch(
-      new Request('http://localhost/api/entries?filter=TOTO'),
+      new Request('http://localhost/api/entries?filter=TOTO', { headers: authHeaders() }),
       services
     );
     const body = await response.json();
@@ -80,7 +162,8 @@ describe('worker - fetch handler', () => {
     const services = buildServices();
     const response = await handleFetch(
       new Request(
-        'http://localhost/api/entries?filter=MORE_THAN_5_WORDS_BY_COMMENTS'
+        'http://localhost/api/entries?filter=MORE_THAN_5_WORDS_BY_COMMENTS',
+        { headers: authHeaders() }
       ),
       services
     );
@@ -109,7 +192,8 @@ describe('worker - fetch handler', () => {
     const services = buildServices();
     const response = await handleFetch(
       new Request(
-        'http://localhost/api/entries?filter=LESS_OR_EQUAL_5_WORDS_BY_POINTS'
+        'http://localhost/api/entries?filter=LESS_OR_EQUAL_5_WORDS_BY_POINTS',
+        { headers: authHeaders() }
       ),
       services
     );
@@ -130,7 +214,7 @@ describe('worker - fetch handler', () => {
   it('scrapes and saves entries on GET /api/scrape with reason "(manual)"', async () => {
     const services = buildServices();
     const response = await handleFetch(
-      new Request('http://localhost/api/scrape'),
+      new Request('http://localhost/api/scrape', { headers: authHeaders() }),
       services
     );
     const body = await response.json();
@@ -156,7 +240,7 @@ describe('worker - fetch handler', () => {
   it('returns the system config on GET /api/config', async () => {
     const services = buildServices();
     const response = await handleFetch(
-      new Request('http://localhost/api/config'),
+      new Request('http://localhost/api/config', { headers: authHeaders() }),
       services
     );
     const body = await response.json();
@@ -173,7 +257,7 @@ describe('worker - fetch handler', () => {
     const response = await handleFetch(
       new Request('http://localhost/api/config', {
         method: 'PUT',
-        headers: { 'content-type': 'application/json' },
+        headers: authHeaders({ 'content-type': 'application/json' }),
         body: JSON.stringify({ cron_enabled: false })
       }),
       services
@@ -194,7 +278,7 @@ describe('worker - fetch handler', () => {
     const response = await handleFetch(
       new Request('http://localhost/api/config', {
         method: 'PUT',
-        headers: { 'content-type': 'application/json' },
+        headers: authHeaders({ 'content-type': 'application/json' }),
         body: 'not-json'
       }),
       buildServices()
@@ -207,7 +291,7 @@ describe('worker - fetch handler', () => {
 
   it('returns 404 for unknown routes', async () => {
     const response = await handleFetch(
-      new Request('http://localhost/api/unknown'),
+      new Request('http://localhost/api/unknown', { headers: authHeaders() }),
       buildServices()
     );
     const body = await response.json();
@@ -221,7 +305,7 @@ describe('worker - fetch handler', () => {
     services.scraper.scrape.mockRejectedValueOnce(new Error('HN is down'));
 
     const response = await handleFetch(
-      new Request('http://localhost/api/scrape'),
+      new Request('http://localhost/api/scrape', { headers: authHeaders() }),
       services
     );
     const body = await response.json();
