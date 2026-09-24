@@ -56,6 +56,33 @@ Full-stack solution that scrapes the **top 30 Hacker News entries**, filters and
 | Firestore | Source of truth for cache, audit trail and system config |
 | Domain services | Pure business logic (word count, strategies, HTML parsing) |
 
+### How the components work
+
+Each deployed piece has a single responsibility and only talks through the interfaces below.
+
+| Component | Runs on | Responsibility |
+|---|---|---|
+| **Frontend** (`frontend/`) | Cloudflare Pages (static bundle) | UI: filter chips, results table, Logs/Execution modals. Calls the Worker API with `x-api-key`; reads `usage_logs` and `entries_cache` **directly from Firestore** via `onSnapshot` (realtime, no polling). All **writes** go through the Worker API so every action is authenticated and audited. |
+| **Fetch router** (`handleFetch` in `worker.js`) | Cloudflare Worker — HTTP | Authenticates every non-OPTIONS request and dispatches: `/` (service info), `/api/entries` (scrape → strategy → audit), `/api/scrape` (scrape → save cache), `/api/config` `GET`/`PUT`, `POST /api/logs`. |
+| **Cron handler** (`handleScheduled` in `worker.js`) | Cloudflare Worker — cron trigger | Wakes the Worker **every hour** (`0 * * * *` from `wrangler.toml`), reads `system_config` and applies the schedule gate (`cron_enabled`, `frequency_hours` vs `last_run_hour`): scrapes and audits `SCHEDULED` only when due, otherwise skips. |
+| **HackerNewsScraper** | inside the Worker | Primary source: cheerio parse of `news.ycombinator.com`; automatic fallback to the official HN API on network error / HTTP 419 / empty parse (business rule 7). Always returns the same 30-entry `Entry[]` shape. |
+| **WordCounter + Strategies** | inside the Worker (pure) | Business rules: word count and the two filters; strategies receive an injected `WordCounter` (DIP) and are selected by the router at runtime. |
+| **Repositories** | Node/tests → `FirestoreRepository` (SDK); Worker → `FirestoreRestRepository` (REST) | Both implement `BaseRepository` (`saveUsageLog`, `saveEntries`, `getSystemConfig`, `updateSystemConfig`). The Firebase SDK cannot run on Workers, hence the REST twin. |
+| **Firestore** (project `test-2eb64`) | Google | Source of truth — three collections: |
+
+**Firestore collections**
+
+| Collection | Document | Content |
+|---|---|---|
+| `usage_logs` | auto-id | One row per execution/UI action: `timestamp`, `filter_applied`, `results_count`, `execution_type` (`MANUAL`/`SCHEDULED`/`ORDER`/`SEARCH`), `execution_time_ms` |
+| `entries_cache` | `latest` | The last scraped 30 entries (default table view) |
+| `system_config` | `global` | Schedule: `cron_enabled`, `frequency_hours`, `cron_expression` (label only), `last_run_hour` (UTC hour key, no minutes) |
+
+**The two flows**
+
+- **Manual request** — browser → `GET /api/entries?filter=…` (+ `x-api-key`) → router → scraper (HTML, API fallback) → strategy → write `usage_logs` → JSON response; the Logs and Results panels refresh in realtime through their Firestore subscriptions.
+- **Scheduled run** — Cloudflare wakes the Worker hourly → `handleScheduled` → gate decides scrape vs skip → scrape → `entries_cache/latest` + `last_run_hour` + `usage_logs` (`SCHEDULED`, reason `each N h`).
+
 ---
 
 ## SOLID principles
@@ -223,155 +250,232 @@ Stop processes with `Ctrl+C`. Detailed steps and troubleshooting: **`install.me`
 
 ## Cloudflare deployment
 
-Production backend runs as a **Cloudflare Worker** with a **cron trigger**. Frontend is a static bundle (e.g. **Cloudflare Pages**).
+Production runs on **two Cloudflare pieces**: the **Worker** (HTTP API + cron) and **Pages** (frontend). Follow the steps **in order** — what each component does is explained in [Architecture](#architecture).
 
-### Prerequisites
-
-- Cloudflare account (free tier is enough)
-- `npx wrangler login` (from `backend/`)
-
-### 1. Deploy the Worker
-
-```bash
-cd backend
-npx wrangler login
-npx wrangler deploy
-```
-
-Wrangler prints the production URL, e.g. `https://hacker-news-scraper.<account>.workers.dev`.
-
-Redeploy after every code change:
-
-```bash
-npx wrangler deploy
-```
-
-### 2. Secrets & variables
-
-| Mechanism | Use for | In git? |
+| Step | What you do | Result |
 |---|---|---|
-| `[vars]` in `wrangler.toml` | Non-sensitive config (local demo key) | Yes |
-| `wrangler secret` | Production `API_KEY`, Firebase overrides | **No** |
+| [0](#step-0--prerequisites) | Prerequisites + `wrangler login` | CLI authorized |
+| [1](#step-1--review-backendwrangertoml) | Review `backend/wrangler.toml` | Name, entry, cron base trigger confirmed |
+| [2](#step-2--deploy-the-worker) | `npx wrangler deploy` | Worker URL + hourly cron published |
+| [3](#step-3--create-the-secrets) | `npx wrangler secret put API_KEY` | Auth enabled (401/200) |
+| [4](#step-4--cron-hourly-base-wake--ui-frequency) | Verify cron + pick frequency in the UI | Scheduled runs working |
+| [5](#step-5--smoke-test-the-api) | Curl the production API | `results_count: 30` |
+| [6](#step-6--deploy-the-frontend-cloudflare-pages) | Build + `wrangler pages deploy` | `https://scropcombinator.pages.dev` |
+| [7](#step-7--end-to-end-check) | Click through the UI | Table + realtime logs |
+| [8](#step-8--post-deploy-checklist) | Checklist | Done |
+
+### Step 0 — Prerequisites
+
+| Need | Check / command |
+|---|---|
+| Node.js 20+ | `node -v` |
+| Cloudflare account (free tier is enough) | https://dash.cloudflare.com |
+| Code on your machine | `git clone https://github.com/ricardoalulema-lgtm/scropcombinator.git && cd scropcombinator` |
+| Wrangler authenticated | `cd backend && npx wrangler login` → browser opens → **Allow** |
+| Dependencies installed | `cd backend && npm install` · `cd frontend && npm install` |
+
+### Step 1 — Review `backend/wrangler.toml`
+
+| Key | Value | Meaning |
+|---|---|---|
+| `name` | `hacker-news-scraper` | Worker name → `https://hacker-news-scraper.<account>.workers.dev` |
+| `main` | `src/worker.js` | Entry point: `fetch` router + `scheduled` handler |
+| `compatibility_date` | `2026-09-01` | workerd runtime version pin |
+| `[triggers] crons` | `["0 * * * *"]` | **Base wake**: once per hour at minute 0 (UTC) — published with every deploy |
+
+Two things this file deliberately does **not** contain:
+
+- **No `[vars] API_KEY`.** The key exists only as a Cloudflare **secret** (production) and in the gitignored `backend/.dev.vars` (local dev). A `[vars]` binding with the same name as an existing secret is **rejected at deploy** (`10053`).
+- **No Firebase credentials.** They default to `src/config/firebaseConfig.js` (project `test-2eb64`); add secrets only to override them.
+
+### Step 2 — Deploy the Worker
+
+```bash
+cd backend
+npx wrangler deploy
+```
+
+Expected output:
+
+```
+Uploaded hacker-news-scraper (…)
+Deployed hacker-news-scraper triggers (…)
+  https://hacker-news-scraper.<account>.workers.dev
+  schedule: 0 * * * *
+```
+
+- **Record the URL** — it becomes `VITE_API_BASE_URL` for the frontend (this project: `https://hacker-news-scraper.ricardoalulema.workers.dev`).
+- Right after this first deploy, before Step 3, every request returns **500** `API key is not configured on the server`. That is expected: the router is **fail-closed** until the secret exists.
+- Run the same command after every code change; the cron from `wrangler.toml` is republished automatically.
+
+### Step 3 — Create the secrets
+
+| Where | Name | Used by |
+|---|---|---|
+| Cloudflare **secret** (encrypted, never in git) | `API_KEY` | Worker router — every request must present it |
+| Cloudflare secret (optional) | `FIREBASE_PROJECT_ID`, `FIREBASE_API_KEY` | Only to override `firebaseConfig.js` defaults (normally not needed) |
+| `backend/.dev.vars` (gitignored, local only) | `API_KEY` | `npx wrangler dev` on your machine |
 
 ```bash
 cd backend
 
-# Strong production API key (overrides [vars] at runtime)
+# paste a strong random value (32+ chars) when prompted
 npx wrangler secret put API_KEY
 
-# Optional Firebase overrides if you do not rely on firebaseConfig.js defaults
+# verify
+npx wrangler secret list
+# → [ { "name": "API_KEY", "type": "secret_text" } ]
+
+# optional Firebase overrides (project test-2eb64 is the default)
 npx wrangler secret put FIREBASE_PROJECT_ID
 npx wrangler secret put FIREBASE_API_KEY
-
-npx wrangler secret list
 ```
 
-Dashboard alternative: **Workers & Pages** → Worker → **Settings** → **Variables and Secrets**.
+Dashboard alternative: **Workers & Pages** → `hacker-news-scraper` → **Settings** → **Variables and Secrets** → *Add* → **Secret** → name `API_KEY` → paste value → Save.
 
-Keep frontend and Worker keys in sync: after rotating `API_KEY`, rebuild frontend with matching `VITE_API_KEY` and republish.
+Notes:
 
-### 3. Cron triggers (scheduled scrapes) — simple steps
+- Secrets apply **immediately** — no redeploy needed (redeploy only when the code changed).
+- **Frontend/Worker sync:** the UI sends `VITE_API_KEY` on every request. After rotating `API_KEY`, rebuild the frontend with the matching `VITE_API_KEY` and republish (Step 6), otherwise the UI shows `401 Unauthorized`.
+- Never print or commit the value; `npx wrangler secret list` only shows names, not values.
 
-The Worker can scrape Hacker News **automatically** on a frequency you pick in the UI.  
-**How it works:** Cloudflare wakes the Worker **every hour on the hour** (fixed); Firestore decides whether enough hours have passed.
+### Step 4 — Cron: hourly base wake + UI frequency
 
-#### Step A — Base trigger (already in the project)
+Cloudflare only accepts **fixed** cron expressions, so the design is: the Worker wakes **every hour**, and **Firestore decides** whether N hours have already passed (details in [Architecture](#architecture)).
 
-In `backend/wrangler.toml`:
+#### Step 4.1 — Base trigger (already in the project)
 
 ```toml
+# backend/wrangler.toml
 [triggers]
-crons = ["0 * * * *"]
+crons = ["0 * * * *"]   # wake at minute 0 of every hour, UTC — 24 wakes/day
 ```
 
-`0 * * * *` = wake up **once per hour at minute 0 (UTC)** — 24 wakes/day (0.024 % of the free 100k/day).
+There is **no separate install**: the cron ships with `npx wrangler deploy` from Step 2.
 
-It is published with the deploy (no separate install):
-
-```bash
-cd backend
-npx wrangler deploy
-```
-
-#### Step B — Confirm Cloudflare received the schedule
+#### Step 4.2 — Confirm Cloudflare received the schedule
 
 1. Open the [Cloudflare Dashboard](https://dash.cloudflare.com).
 2. **Workers & Pages** → **`hacker-news-scraper`** → **Settings** → **Triggers**.
-3. You should see `0 * * * *` (Production). If missing, run `npx wrangler deploy` again.
+3. You should see `0 * * * *` under Production triggers. If missing, run `npx wrangler deploy` again.
 
-#### Step C — Choose the frequency in the UI (Firestore decides)
+#### Step 4.3 — Choose the frequency in the UI (writes Firestore)
 
-Firestore `system_config` fields:
+Menu **Execution** → **Scheduled** → pick **Every N hours** (1, 2, 3, 4, 6, 8, 12 or 24) → **Save**.
+
+That `PUT /api/config` writes `system_config/global` and anchors `last_run_hour` to the current UTC hour:
 
 | Field | Meaning |
 |---|---|
-| `frequency_hours` | How often entries must refresh (1, 2, 3, 4, 6, 8, 12 or 24) — set from the UI |
 | `cron_enabled` | `true` = scheduled runs allowed; `false` = always skip |
-| `last_run_hour` | Last real scrape, **hour only without minutes** (e.g. `2026-09-24T15`) |
+| `frequency_hours` | How often entries must refresh (the value you picked) |
+| `last_run_hour` | Last real scrape / anchor, **hour only without minutes** (e.g. `2026-09-24T15`, UTC) |
+| `cron_expression` | Human-readable label only — the runtime gate uses `frequency_hours` + `last_run_hour` |
 
-**On every hourly wake** the Worker:
+#### Step 4.4 — What happens on every hourly wake
 
-1. Reads config; if `cron_enabled` is false → skip.
-2. If `last_run_hour` is empty → **scrape** (first run).
-3. Else if `current_hour − last_run_hour ≥ frequency_hours` → **scrape** and save `last_run_hour = current hour`.
-4. Otherwise → skip (no log).
+1. Reads `system_config`; `cron_enabled: false` → **skip**.
+2. `last_run_hour` empty → **scrape** (first run).
+3. `current_hour − last_run_hour ≥ frequency_hours` → **scrape**, save `last_run_hour = current hour`, audit `SCHEDULED`.
+4. Otherwise → **skip** (`reason: frequency_not_reached`, no log).
 
-**Saving the Execution modal** (PUT `/api/config`) also writes `last_run_hour` with the current hour (anchor after you change settings).
+Changing the frequency later is a UI/Firestore edit only — **no redeploy**.
 
-**Easiest way:** menu **Execution** → **Scheduled** → pick **Every N hours** → **Save**.
+#### Step 4.5 — Verify it is running
 
-#### Step D — Verify it is running
+- App → **Logs** modal: a row with `execution_type: SCHEDULED` and reason `Scraping and save entries (each N h)`.
+- Live logs: `cd backend && npx wrangler tail` → look for `[scheduled] { skipped: false, entries_count: 30, … }`.
+- Dashboard → **Triggers** → **Test** (a test wake may legitimately return `frequency_not_reached` if the frequency has not elapsed).
 
-1. Wait `frequency_hours`, **or** use Dashboard → **Triggers** → **Test** (test wakes may skip if frequency not elapsed).
-2. App → **Logs**: row `execution_type: SCHEDULED` and reason `Scraping and save entries (each N h)`.
-3. Live logs: `cd backend && npx wrangler tail`.
-
-#### Local testing note
-
-`npx wrangler dev` does **not** fire the cron by itself:
+**Local testing note:** `npx wrangler dev` does **not** fire the cron by itself:
 
 ```bash
 curl "http://127.0.0.1:8787/cdn-cgi/local/scheduled"
+# first call scrapes; a second call in the same hour → frequency_not_reached
 ```
-
-The first call scrapes; a second call in the same hour returns `reason: frequency_not_reached`.
 
 | If you want… | Do this |
 |---|---|
 | Different frequency | UI **Execution** → Scheduled → **Every N hours** → Save (no redeploy) |
-| Pause automatic runs | UI → Manual → Save (`cron_enabled: false`) |
-| Resume | UI → Scheduled → Save (`cron_enabled: true`) |
+| Pause automatic runs | UI → **Manual** → Save (`cron_enabled: false`) |
+| Resume | UI → **Scheduled** → Save (`cron_enabled: true`) |
 | Change the hourly wake itself | Edit `crons` in `wrangler.toml` → `npx wrangler deploy` (rarely needed) |
-| Timezone note | Hour keys are **UTC** |
+| Timezone | All hour keys and cron evaluations are **UTC** |
+| Free-plan budget | 24 wakes/day ≈ 0.024 % of the 100k requests/day limit |
 
-### 4. Deploy the frontend (Cloudflare Pages)
+### Step 5 — Smoke-test the API
+
+```bash
+WORKER="https://hacker-news-scraper.<account>.workers.dev"
+KEY="<value-you-pasted-in-step-3>"
+
+curl -H "x-api-key: $KEY" "$WORKER/"
+# → { "service": "hacker-news-scraper", "status": "ok", … }
+
+curl -i "$WORKER/api/entries"
+# → HTTP 401 Unauthorized (fail-closed without key)
+
+curl -H "x-api-key: $KEY" "$WORKER/api/entries?filter=NO_FILTER"
+# → "results_count": 30
+
+curl -H "x-api-key: $KEY" "$WORKER/api/scrape"
+# → "entries_count": 30, "doc_id": "latest"
+```
+
+> If the Worker logs `[scraper] HTML source unavailable (… 419 …); using official HN API`, that is the documented fallback (business rule 7): HN blocks Cloudflare IPs, so production reads the official HN API. The response shape and `results_count: 30` are unchanged.
+
+### Step 6 — Deploy the frontend (Cloudflare Pages)
+
+`VITE_*` values are **baked into the bundle at build time**, so set them **before** `npm run build`.
+
+bash/zsh:
 
 ```bash
 cd frontend
-
 export VITE_API_BASE_URL="https://hacker-news-scraper.<account>.workers.dev"
-export VITE_API_KEY="<same-key-as-worker>"   # bash/zsh
-# PowerShell: $env:VITE_API_BASE_URL="..."; $env:VITE_API_KEY="..."
-
-npm run lint
-npm test
-npm run build                                 # → dist/
-
-npx wrangler pages deploy dist --project-name=scropcombinator-frontend
+export VITE_API_KEY="<same-key-as-the-worker-secret>"
 ```
 
-Dashboard alternative: **Workers & Pages → Create → Pages** → build command `npm run build`, output `dist`, set `VITE_API_BASE_URL` and `VITE_API_KEY` under **Settings → Environment variables** *before* build.
+PowerShell:
 
-CORS: the Worker returns `access-control-allow-origin: *`, so Pages can call the API.
+```powershell
+cd frontend
+$env:VITE_API_BASE_URL="https://hacker-news-scraper.<account>.workers.dev"
+$env:VITE_API_KEY="<same-key-as-the-worker-secret>"
+```
 
-### 5. Post-deploy checklist
+Then lint, test, build and publish:
+
+```bash
+npm run lint
+npm test
+npm run build        # → dist/
+
+npx wrangler pages deploy dist --project-name=scropcombinator
+```
+
+- The first run creates the Pages project `scropcombinator` → **`https://scropcombinator.pages.dev`**; later runs publish a new deployment to the same URL.
+- Dashboard alternative: **Workers & Pages → Create → Pages** → build command `npm run build`, output directory `dist`, and define `VITE_API_BASE_URL` + `VITE_API_KEY` under **Settings → Environment variables** (Production **and** Preview) *before* the first build.
+- CORS: the Worker answers with `access-control-allow-origin: *`, so the Pages domain can call the API.
+
+### Step 7 — End-to-end check
+
+1. Open **https://scropcombinator.pages.dev** (or your Pages URL).
+2. **Load all** → the table shows **30 rows**; switch filters → results update.
+3. Menu **Logs** → rows appear in realtime (`MANUAL` entries).
+4. Menu **Execution** → **Scheduled** → **Every N hours** → **Save**.
+5. After N hours (or Dashboard → Triggers → **Test**): a new `SCHEDULED` log row with reason `Scraping and save entries (each N h)`.
+
+### Step 8 — Post-deploy checklist
 
 - [ ] `npx wrangler deploy` succeeded; Worker URL recorded
-- [ ] `npx wrangler secret put API_KEY` (strong key)
-- [ ] Dashboard → Triggers shows base cron `0 * * * *` (hourly wake)
-- [ ] UI **Execution** → Scheduled + **Every N hours** saved (`cron_enabled: true`, `frequency_hours: N`)
-- [ ] Frontend built with production `VITE_API_BASE_URL` + matching `VITE_API_KEY`
-- [ ] UI loads; unauthenticated API call returns 401; authenticated health returns `"status": "ok"`
+- [ ] `npx wrangler secret list` shows `API_KEY`; unauthenticated call returns **401**; authenticated health returns `"status": "ok"`
+- [ ] `wrangler.toml` contains **no** `[vars]` (collision with the secret → deploy error `10053`)
+- [ ] Dashboard → Triggers shows base cron `0 * * * *`
+- [ ] UI **Execution** → **Scheduled** + **Every N hours** saved (`cron_enabled: true`, `frequency_hours: N`)
+- [ ] `/api/entries?filter=NO_FILTER` returns `results_count: 30`
+- [ ] Frontend built with production `VITE_API_BASE_URL` + matching `VITE_API_KEY`, published to Pages
+- [ ] UI loads 30 rows; Logs modal updates in realtime
 
 More detail (troubleshooting, dashboard steps): **`install.me`**.
 
@@ -440,7 +544,7 @@ Historical results per step are recorded in `testresults.me`.
 | **Strategy pattern for filters** | OCP: new filters without modifying existing classes; easy unit testing with injected `WordCounter`. |
 | **Cheerio for scraping** | Server-side HTML parsing without a browser; fast and testable with fixture HTML. |
 | **Official HN API fallback** | Cloudflare Worker IPs are blocked by `news.ycombinator.com` (HTTP **419 "Sorry"**) and markup changes would silently yield 0 entries, so `scrape()` keeps cheerio as primary and falls back to `hacker-news.firebaseio.com/v0` (`topstories` + `item/<id>`, 31 subrequests — free limit is 50) on network error, non-OK status, or an empty parse; field mapping is `score → points`, `descendants → comments` (default `0`). Both sources failing → combined **500** error. |
-| **Static API key on every HTTP request** | Lightweight auth so arbitrary clients cannot GET/PUT the API; header `x-api-key` or `Authorization: Bearer`. OPTIONS (CORS preflight) is exempt. Key lives in `wrangler.toml [vars]` locally; use `wrangler secret put API_KEY` in production. |
+| **Static API key on every HTTP request** | Lightweight auth so arbitrary clients cannot GET/PUT the API; header `x-api-key` or `Authorization: Bearer`. OPTIONS (CORS preflight) is exempt. The key exists only in the gitignored `backend/.dev.vars` (local `wrangler dev`) and as the Cloudflare secret `API_KEY` (production) — never in `wrangler.toml`, where a `[vars]` binding colliding with the secret is rejected at deploy (`10053`). |
 | **Realtime via `onSnapshot`** | Audit logs and `entries_cache` update without polling; matches the architecture diagram. |
 | **`NO_FILTER` default in UI** | Users see results immediately from cache; filters are opt-in. |
 | **Firestore-driven schedule (hourly base wake)** | Cloudflare only accepts fixed cron expressions, so `wrangler.toml` wakes the Worker every hour (`0 * * * *`) and Firestore decides the actual frequency: `handleScheduled` compares `frequency_hours` against `last_run_hour` (hour key without minutes) and skips with `frequency_not_reached` until N hours elapse; `PUT /api/config` anchors `last_run_hour` on every save. Frequency is chosen in the UI and never requires a redeploy, and the audit label `each N h` is derived from the stored config (`utils/schedule.js`) so logs always match the user's choice. **Note:** This feature is used to provide a better user experience |
@@ -485,7 +589,7 @@ Error codes: `400` invalid filter/body · `401` missing/invalid API key · `404`
 
 - **API key** required on every non-OPTIONS request; fail-closed if not configured (`500`).
 - CORS allows `content-type`, `x-api-key`, `authorization` from any origin (tighten `access-control-allow-origin` for production).
-- Do not commit production secrets; prefer Cloudflare secrets over `[vars]` when deploying.
+- Production `API_KEY` lives **only** as a Cloudflare secret; local dev uses the gitignored `backend/.dev.vars`. Never put it in `wrangler.toml` (`[vars]` colliding with an existing secret fails the deploy with `10053`) and never commit it.
 
 ---
 
@@ -496,7 +600,7 @@ The repository uses **two complementary tag series**:
 | Series | Format | Meaning |
 |---|---|---|
 | **Official releases** | `MAJOR.MINOR.PATCH` (e.g. `1.0.0`) | Product versions published as [GitHub Releases](../../releases) with notes. |
-| **Traceability tags** | `1.x` (e.g. `1.1` … `1.15`) | One snapshot tag per commit, where `x` is the commit ordinal. History aid only — **not** product versions. |
+| **Traceability tags** | `1.x` (e.g. `1.1`, `1.2`, … — one per commit) | One snapshot tag per commit, where `x` is the commit ordinal. History aid only — **not** product versions. |
 
 ### Release rules (SemVer)
 

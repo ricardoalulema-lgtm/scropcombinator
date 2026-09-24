@@ -106,24 +106,21 @@ npx wrangler --version
 | File | Purpose |
 |---|---|
 | `backend/src/worker.js` | Fetch router + scheduled (cron) handler |
-| `backend/wrangler.toml` | Worker name, entrypoint, **cron schedule**, **environment variables** |
+| `backend/wrangler.toml` | Worker name, entrypoint, **cron schedule** (no variables — `API_KEY` is a secret, see §12) |
 | `backend/src/config/firebaseConfig.js` | Firebase project credentials (defaults for REST repo) |
 
 ---
 
 ## 4. Environment variables — local
 
-### 4.1 Variables defined in `wrangler.toml` (local + deploy)
+### 4.1 `wrangler.toml` (worker config — no variables)
 
-Current file (example):
+Current file:
 
 ```toml
 name = "hacker-news-scraper"
 main = "src/worker.js"
 compatibility_date = "2026-09-01"
-
-[vars]
-API_KEY = "hn-scraper-7f3a9c2e1b8d4f6a-static"
 
 [triggers]
 crons = ["0 * * * *"]
@@ -131,17 +128,19 @@ crons = ["0 * * * *"]
 
 > **Cron note:** the trigger is a **fixed hourly wake** (`0 * * * *`). The real scrape frequency is chosen in the **UI** and stored in Firestore (`frequency_hours` + `last_run_hour`) — see [§13](#13-cloudflare-cron-triggers-scheduled-jobs).
 
-| Variable | Required | Description |
-|---|---|---|
-| `API_KEY` | **Yes** | Static API key. Every HTTP request (except `OPTIONS`) must send `x-api-key: <API_KEY>` or `Authorization: Bearer <API_KEY>`. If missing at runtime the Worker returns **500** (fail-closed). |
-| `FIREBASE_PROJECT_ID` | No | Overrides Firebase project id. Default comes from `firebaseConfig.js` (`test-2eb64`). |
-| `FIREBASE_API_KEY` | No | Overrides Firebase web API key. Default from `firebaseConfig.js`. |
+> **No `[vars] API_KEY`:** the file intentionally has **no** `[vars]` section. A `[vars]` binding with the same name as an existing secret is rejected at deploy (`10053`). The key lives in `.dev.vars` (local) and in the Cloudflare secret (production, §12).
 
-**Local behavior:** Wrangler automatically loads `[vars]` from `wrangler.toml` when you run `npx wrangler dev`. You do **not** need a separate `.env` file for the basic local setup.
+| Variable | Required | Where it lives | Description |
+|---|---|---|---|
+| `API_KEY` | **Yes** | `backend/.dev.vars` (local) · Cloudflare **secret** (prod) | Static API key. Every HTTP request (except `OPTIONS`) must send `x-api-key: <API_KEY>` or `Authorization: Bearer <API_KEY>`. If missing at runtime the Worker returns **500** (fail-closed). |
+| `FIREBASE_PROJECT_ID` | No | `firebaseConfig.js` default; secret to override | Overrides Firebase project id. Default comes from `firebaseConfig.js` (`test-2eb64`). |
+| `FIREBASE_API_KEY` | No | `firebaseConfig.js` default; secret to override | Overrides Firebase web API key. Default from `firebaseConfig.js`. |
 
-### 4.2 Optional local secrets file (`.dev.vars`)
+**Local behavior:** `npx wrangler dev` automatically loads `backend/.dev.vars`; production loads the secrets set with `wrangler secret put` (§12).
 
-For values you do not want in `wrangler.toml`, create `backend/.dev.vars` (git-ignored pattern recommended):
+### 4.2 Local secrets file (`.dev.vars`) — required for local dev
+
+Create `backend/.dev.vars` (git-ignored, never committed):
 
 ```bash
 # backend/.dev.vars  (loaded only by wrangler dev, never deployed as file)
@@ -376,7 +375,7 @@ A browser window opens; authorize the CLI.
 - `name` — Worker subdomain name (e.g. `hacker-news-scraper` → `hacker-news-scraper.<account>.workers.dev`).
 - `main = "src/worker.js"` — entry file.
 - `[triggers] crons` — schedule (see §13).
-- `[vars] API_KEY` — **do not** leave a weak key in production; prefer a secret (§12).
+- **No `[vars]` section** — `API_KEY` must be a secret (§12); a `[vars]` binding colliding with an existing secret fails the deploy (`10053`).
 
 ### 11.3 Deploy
 
@@ -409,7 +408,7 @@ Use two mechanisms:
 
 | Mechanism | Use for | Visible in git? | Scope |
 |---|---|---|---|
-| `[vars]` in `wrangler.toml` | Non-sensitive config | Yes | Deployed with the Worker |
+| `[vars]` in `wrangler.toml` | Non-sensitive config (**not used** in this project) | Yes | Deployed with the Worker — never for `API_KEY` |
 | **Secrets** (`wrangler secret`) | `API_KEY`, Firebase keys, anything sensitive | **No** | Encrypted per Worker/environment |
 
 ### 12.1 Create secrets with Wrangler (recommended)
@@ -433,7 +432,7 @@ npx wrangler secret list
 npx wrangler secret delete API_KEY
 ```
 
-> Secrets **override** `[vars]` of the same name at runtime. After `secret put`, you do not need to redeploy for the secret to apply (binding is runtime); still redeploy if you changed code.
+> After `secret put`, you do not need to redeploy for the secret to apply (binding is runtime); still redeploy if you changed code. Do **not** add a `[vars]` entry with the same name as an existing secret — the deploy fails with `10053`.
 
 ### 12.2 Create variables with the Cloudflare Dashboard
 
@@ -564,7 +563,7 @@ npm run lint
 npm run build          # outputs dist/
 
 # 3) Deploy dist/ (Pages Git integration or wrangler pages)
-npx wrangler pages deploy dist --project-name=scropcombinator-frontend
+npx wrangler pages deploy dist --project-name=scropcombinator
 ```
 
 Dashboard alternative:
@@ -582,7 +581,7 @@ CORS: the Worker already returns `access-control-allow-origin: *`, so the Pages 
 - [ ] `node -v` ≥ 20
 - [ ] Repo cloned; `backend/npm install` and `frontend/npm install` completed
 - [ ] `npx wrangler --version` works inside `backend/`
-- [ ] `API_KEY` present (wrangler.toml or `.dev.vars` or secret)
+- [ ] `API_KEY` present (`.dev.vars` for local · Cloudflare secret for prod — not in `wrangler.toml`)
 - [ ] Backend: `npx wrangler dev --port 8787` → health JSON with API key
 - [ ] Backend: request without key → 401
 - [ ] Frontend: `.env.local` points to local Worker + same key
@@ -603,7 +602,7 @@ CORS: the Worker already returns `access-control-allow-origin: *`, so the Pages 
 |---|---|---|
 | `ERR_CONNECTION_REFUSED` on `:8787` | Wrangler not running / crashed | Restart `npx wrangler dev --port 8787`; check for startup TypeError |
 | Worker fails: *Incorrect type for map entry …* | A non-handler **named export** in `worker.js` | Export only handlers; keep constants local (e.g. `NO_FILTER`) |
-| HTTP **500** `API key is not configured` | `API_KEY` missing in env/vars/secrets | Add `[vars]` or `wrangler secret put API_KEY` |
+| HTTP **500** `API key is not configured` | `API_KEY` secret missing (prod) or `.dev.vars` missing (local) | `npx wrangler secret put API_KEY` (prod) or create `backend/.dev.vars` (local) — never `[vars]`, that collides with the secret (`10053`) |
 | HTTP **401** from UI | Frontend key ≠ Worker key | Align `VITE_API_KEY` with `API_KEY`; restart Vite / rebuild |
 | UI loads but logs empty | Firestore rules block read, or no data yet | Allow read for `usage_logs` in rules; trigger a filter run |
 | Scrape 500 from Worker | Both HTML **and** official HN API failed | Error message shows `Failed to fetch Hacker News from HTML and API. HTML: … API: …`; check network / HN status in Worker logs |
