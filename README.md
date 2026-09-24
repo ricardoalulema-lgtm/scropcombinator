@@ -15,6 +15,7 @@ Full-stack solution that scrapes the **top 30 Hacker News entries**, filters and
 - [Technical decisions](#technical-decisions)
 - [API reference](#api-reference)
 - [Security](#security)
+- [Versioning](#versioning)
 
 ---
 
@@ -483,6 +484,31 @@ Error codes: `400` invalid filter/body · `401` missing/invalid API key · `404`
 - **API key** required on every non-OPTIONS request; fail-closed if not configured (`500`).
 - CORS allows `content-type`, `x-api-key`, `authorization` from any origin (tighten `access-control-allow-origin` for production).
 - Do not commit production secrets; prefer Cloudflare secrets over `[vars]` when deploying.
+
+---
+
+## Versioning
+
+The repository uses **two complementary tag series**:
+
+| Series | Format | Meaning |
+|---|---|---|
+| **Official releases** | `MAJOR.MINOR.PATCH` (e.g. `1.0.0`) | Product versions published as [GitHub Releases](../../releases) with notes. |
+| **Traceability tags** | `1.x` (e.g. `1.1` … `1.15`) | One snapshot tag per commit, where `x` is the commit ordinal. History aid only — **not** product versions. |
+
+### Release rules (SemVer)
+
+- **MAJOR** — incompatible / breaking changes.
+- **MINOR** — backwards-compatible new features.
+- **PATCH** — backwards-compatible bug fixes.
+- The **total number of commits** the release is built on is recorded in the release notes (e.g. *"Based on 16 commits"*), keeping the numbers clean while preserving traceability.
+
+**First official release:** `1.0.0` — initial stable version.
+
+### How to browse
+
+- **On GitHub:** [Releases](../../releases) for official versions · [Tags](../../tags) for the full series.
+- **Locally:** `git tag -l` · `git show 1.0.0` · `git describe --tags`.
 
 ---
 
