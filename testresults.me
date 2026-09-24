@@ -1700,3 +1700,20 @@ Fallback logs captured during the run:
   [scraper] HTML source unavailable (Failed to fetch Hacker News: 419 Sorry); using official HN API
   [scraper] HTML source unavailable (fetch failed); using official HN API
   [scraper] HTML source unavailable (HTML parsed to zero entries); using official HN API
+step 9 - production smoke test of the HN API fallback - 2026-09-24
+
+Deploy: npx wrangler deploy -> Version ID 9941037b-fe3e-4746-82fd-05bc32852e75
+Worker: https://hacker-news-scraper.ricardoalulema.workers.dev (cron 0 * * * *)
+
+  GET /                      -> 200 (with x-api-key)
+  GET /api/entries           -> 401 without key (fail-closed intact)
+  GET /api/entries?filter=NO_FILTER
+                              -> 200, results_count=30   (was 500 "419 <none>" BEFORE the fallback)
+  GET /api/scrape            -> 200, entries_count=30, doc_id=latest,
+                                log_id=1IvfuTa2O7BLd66nWupZ (1173 ms)
+
+Traceability from wrangler tail during the prod /api/scrape:
+  [scraper] HTML source unavailable (Failed to fetch Hacker News: 419 <none>); using official HN API
+
+=> HTML source is blocked by HN from Cloudflare IPs (419), the official
+   API fallback provides the 30 entries, response shape unchanged.
