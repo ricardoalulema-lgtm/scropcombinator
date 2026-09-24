@@ -4,14 +4,15 @@ import ResultsTable from './components/ResultsTable.jsx';
 import AuditLogsTable from './components/AuditLogsTable.jsx';
 import ScheduleConfig from './components/ScheduleConfig.jsx';
 import { fetchEntries, scrapeNow, getSystemConfig, updateSystemConfig } from './services/api.js';
-import { subscribeUsageLogs } from './services/firebase.js';
+import { subscribeUsageLogs, subscribeEntriesCache } from './services/firebase.js';
 import './App.css';
 
 const hoursToCron = (hours) => `0 */${hours} * * *`;
 
 export default function App() {
-  const [selectedFilter, setSelectedFilter] = useState('MORE_THAN_5_WORDS_BY_COMMENTS');
-  const [results, setResults] = useState([]);
+  const [selectedFilter, setSelectedFilter] = useState('NO_FILTER');
+  const [cachedEntries, setCachedEntries] = useState([]);
+  const [results, setResults] = useState(null);
   const [meta, setMeta] = useState(null);
   const [logs, setLogs] = useState([]);
   const [logsError, setLogsError] = useState(null);
@@ -23,9 +24,20 @@ export default function App() {
   const [notice, setNotice] = useState(null);
   const [error, setError] = useState(null);
 
+  const displayedResults = results ?? cachedEntries;
+  const resultsSource = results ? 'api' : cachedEntries.length > 0 ? 'cache' : 'empty';
+
   useEffect(() => {
-    const unsubscribe = subscribeUsageLogs(setLogs, (err) => setLogsError(err.message));
-    return unsubscribe;
+    const unsubscribeLogs = subscribeUsageLogs(setLogs, (err) => setLogsError(err.message));
+    const unsubscribeEntries = subscribeEntriesCache(
+      setCachedEntries,
+      (err) => setError(err.message)
+    );
+
+    return () => {
+      unsubscribeLogs();
+      unsubscribeEntries();
+    };
   }, []);
 
   useEffect(() => {
@@ -57,7 +69,11 @@ export default function App() {
       const data = await fetchEntries(selectedFilter);
       setResults(data.results);
       setMeta(data);
-      setNotice(`Filter ${data.filter} completed in ${data.execution_time_ms} ms`);
+      setNotice(
+        selectedFilter === 'NO_FILTER'
+          ? `Loaded ${data.results_count} entries in ${data.execution_time_ms} ms`
+          : `Filter ${data.filter} completed in ${data.execution_time_ms} ms`
+      );
     } catch (err) {
       setError(err.message);
     } finally {
@@ -72,6 +88,8 @@ export default function App() {
 
     try {
       const data = await scrapeNow();
+      setResults(null);
+      setMeta(null);
       setNotice(`Saved ${data.entries_count} entries in ${data.execution_time_ms} ms`);
     } catch (err) {
       setError(err.message);
@@ -121,6 +139,15 @@ export default function App() {
     );
   };
 
+  const handleSelectFilter = (filterId) => {
+    setSelectedFilter(filterId);
+
+    if (filterId === 'NO_FILTER') {
+      setResults(null);
+      setMeta(null);
+    }
+  };
+
   return (
     <main className="app">
       <header>
@@ -134,7 +161,7 @@ export default function App() {
       <div className="grid">
         <FilterControls
           selectedFilter={selectedFilter}
-          onSelectFilter={setSelectedFilter}
+          onSelectFilter={handleSelectFilter}
           onRun={runFilter}
           onScrape={runScrape}
           loading={loading}
@@ -147,7 +174,7 @@ export default function App() {
           onSave={saveConfig}
           saving={saving}
         />
-        <ResultsTable results={results} meta={meta} />
+        <ResultsTable results={displayedResults} meta={meta} source={resultsSource} />
         <AuditLogsTable logs={logs} error={logsError} />
       </div>
     </main>

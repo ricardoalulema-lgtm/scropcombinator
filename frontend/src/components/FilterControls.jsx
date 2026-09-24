@@ -1,5 +1,10 @@
 const FILTERS = [
   {
+    id: 'NO_FILTER',
+    label: 'No filter (show all)',
+    description: 'All 30 entries as scraped, original order'
+  },
+  {
     id: 'MORE_THAN_5_WORDS_BY_COMMENTS',
     label: 'More than 5 words (by comments)',
     description: 'Titles with more than 5 words, sorted by comments desc'
@@ -34,7 +39,7 @@ export const FilterControls = ({ selectedFilter, onSelectFilter, onRun, onScrape
     </div>
     <div className="actions">
       <button type="button" onClick={onRun} disabled={loading}>
-        {loading ? 'Running…' : 'Run filter'}
+        {loading ? 'Running…' : selectedFilter === 'NO_FILTER' ? 'Load all entries' : 'Run filter'}
       </button>
       <button type="button" className="secondary" onClick={onScrape} disabled={loading}>
         Scrape &amp; save now

@@ -1,4 +1,4 @@
-export const ResultsTable = ({ results, meta }) => (
+export const ResultsTable = ({ results, meta, source }) => (
   <section className="panel">
     <h2>Results</h2>
     {meta && (
@@ -6,8 +6,13 @@ export const ResultsTable = ({ results, meta }) => (
         {meta.filter} · {meta.results_count} entries · {meta.execution_time_ms} ms
       </p>
     )}
+    {!meta && source === 'cache' && (
+      <p className="meta">No filter · showing cached entries (entries_cache, realtime)</p>
+    )}
     {results.length === 0 ? (
-      <p className="empty">No results yet. Select a filter and run it.</p>
+      <p className="empty">
+        No entries yet. They will appear here from the cache, or run a filter.
+      </p>
     ) : (
       <table>
         <thead>

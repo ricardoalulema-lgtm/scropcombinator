@@ -152,10 +152,32 @@ describe('worker - fetch handler', () => {
     expect(response.status).toBe(400);
     expect(body.error).toBe('Unknown filter "TOTO"');
     expect(body.valid_filters).toEqual([
+      'NO_FILTER',
       'MORE_THAN_5_WORDS_BY_COMMENTS',
       'LESS_OR_EQUAL_5_WORDS_BY_POINTS'
     ]);
     expect(services.scraper.scrape).not.toHaveBeenCalled();
+  });
+
+  it('returns all entries unfiltered on NO_FILTER and audits as NO_FILTER', async () => {
+    const services = buildServices();
+    const response = await handleFetch(
+      new Request('http://localhost/api/entries?filter=NO_FILTER', { headers: authHeaders() }),
+      services
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.filter).toBe('NO_FILTER');
+    expect(body.results_count).toBe(3);
+    expect(body.results).toEqual(entriesFixture);
+    expect(services.repository.saveUsageLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filter_applied: 'NO_FILTER',
+        results_count: 3,
+        execution_type: 'MANUAL'
+      })
+    );
   });
 
   it('runs MORE_THAN_5_WORDS_BY_COMMENTS: scrapes, filters, sorts by comments and audits as MANUAL', async () => {

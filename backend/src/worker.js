@@ -94,39 +94,46 @@ export const createServices = (env = {}) => {
   };
 };
 
+// Filtro especial que devuelve las entradas sin aplicar estrategia.
+const NO_FILTER = 'NO_FILTER';
+
+const listValidFilters = (services) => [NO_FILTER, ...Object.keys(services.strategies)];
+
 // Maneja una petición GET con un filtro específico en la query string.
 const handleEntriesQuery = async (url, services) => {
   const filterId = url.searchParams.get('filter');
   const strategy = services.strategies[filterId];
+  const isNoFilter = filterId === NO_FILTER || filterId === null || filterId === '';
 
   // Si el filtro no existe, devuelve un error 400 con los filtros válidos.
-  if (!strategy) {
+  if (!strategy && !isNoFilter) {
     return json(
       {
         error: `Unknown filter "${filterId}"`,
-        valid_filters: Object.keys(services.strategies)
+        valid_filters: listValidFilters(services)
       },
       400
     );
   }
 
-  // Ejecuta el scraping y aplica el filtro elegido.
+  // Ejecuta el scraping y aplica el filtro elegido (o ninguno si es NO_FILTER).
   const startedAt = performance.now();
   const entries = await services.scraper.scrape();
-  const results = strategy.apply(entries);
+  const results = strategy ? strategy.apply(entries) : entries;
+  const appliedFilter = strategy ? filterId : NO_FILTER;
   const executionTimeMs = Math.round(performance.now() - startedAt);
 
   // Guarda un registro del uso con la categoría del filtro aplicado.
   const logId = await services.repository.saveUsageLog({
     timestamp: new Date().toISOString(),
-    filter_applied: filterId,
+    filter_applied: appliedFilter,
     results_count: results.length,
     execution_type: 'MANUAL',
     execution_time_ms: executionTimeMs
   });
 
   return json({
-    filter: filterId,
+    filter: appliedFilter,
     results_count: results.length,
     execution_time_ms: executionTimeMs,
     log_id: logId,
@@ -216,7 +223,7 @@ export const handleFetch = async (request, services) => {
         service: 'hacker-news-scraper',
         status: 'ok',
         endpoints: [
-          'GET /api/entries?filter=<FILTER_ID>',
+          'GET /api/entries?filter=NO_FILTER | MORE_THAN_5_WORDS_BY_COMMENTS | LESS_OR_EQUAL_5_WORDS_BY_POINTS',
           'GET /api/scrape',
           'GET /api/config',
           'PUT /api/config'
