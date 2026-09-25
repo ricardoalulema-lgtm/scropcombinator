@@ -1941,3 +1941,32 @@ Local smoke (wrangler dev --port 8787 with the new [[ratelimits]] binding):
   4) GET /api/entries  no credentials           -> 401
   5) GET /api/config   legacy x-api-key         -> 200
   Frontend bundle check: dist/assets/*.js has NO key string; references /api/session.
+step 11 - production deploy of session tokens + logs pagination - 2026-09-24
+
+Commit c7aacd6 "feat: replace browser API key with short-lived session tokens
+and paginate logs" (tag 1.20) pushed to main.
+
+Worker deploy (npx wrangler deploy):
+  binding env.SESSION_RATE_LIMITER (60 requests/60s) - Rate Limit
+  https://hacker-news-scraper.ricardoalulema.workers.dev
+  schedule 0 * * * * · Current Version ID: d879862d-d96b-4c5e-87ad-2b7432eb4f9b
+
+Frontend deploy (build with VITE_API_BASE_URL=worker URL, no API key):
+  lint 0 warnings/errors · 8 tests · build OK
+  bundle check: NO key string, references /api/session, correct worker URL
+  npx wrangler pages deploy dist --project-name=scropcombinator
+  https://83b9d84d.scropcombinator.pages.dev (alias of scropcombinator.pages.dev)
+
+Production smoke (worker):
+  1) POST /api/session                -> 200 token=1790298750.7b7a277... expires_in=900 type=Bearer
+  2) GET /api/entries Bearer <token>  -> 200 results_count=30
+  3) GET /api/config x-api-key legacy -> 200
+  4) GET /api/config no credentials   -> 401
+  5) GET / (x-api-key)                -> 200 endpoints include POST /api/session
+  6) rate limit binding (61 POST /api/session in a burst)
+                                       -> 60 x 200 + 1 x 429 (exactly 60 req/60s per IP)
+
+Production smoke (Pages, headless Edge DOM dump of scropcombinator.pages.dev):
+  - TopBar brand, filter chips, results table, execution pill rendered, no error banner
+  - Logs button present WITHOUT count pill (pill-count gone)
+  - Deployed bundle contains no API key and references /api/session
