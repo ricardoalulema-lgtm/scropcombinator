@@ -1,4 +1,4 @@
-export const TopBar = ({ logCount, onOpenLogs, onOpenSchedule, mode }) => (
+export const TopBar = ({ onOpenLogs, onOpenSchedule, mode }) => (
   <header className="topbar">
     <div className="brand">
       <span className="brand-mark" aria-hidden="true">
@@ -19,7 +19,6 @@ export const TopBar = ({ logCount, onOpenLogs, onOpenSchedule, mode }) => (
       </button>
       <button type="button" className="menu-button" onClick={onOpenLogs}>
         <span className="menu-button-label">Logs</span>
-        <span className="pill pill-count">{logCount}</span>
       </button>
     </nav>
   </header>

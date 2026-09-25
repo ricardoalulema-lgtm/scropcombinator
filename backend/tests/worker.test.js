@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { handleFetch, handleScheduled } from '../src/worker.js';
+import { createSessionToken } from '../src/utils/sessionToken.js';
 import { WordCounter } from '../src/services/WordCounter.js';
 import { MoreThanFiveWordsStrategy } from '../src/services/strategies/MoreThanFiveWordsStrategy.js';
 import { LessOrEqualFiveWordsStrategy } from '../src/services/strategies/LessOrEqualFiveWordsStrategy.js';
@@ -448,6 +449,131 @@ describe('worker - fetch handler', () => {
 
     expect(response.status).toBe(401);
     expect(services.repository.saveUsageLog).not.toHaveBeenCalled();
+  });
+});
+
+describe('worker - session tokens', () => {
+  it('issues a bearer token from POST /api/session without credentials', async () => {
+    const response = await handleFetch(
+      new Request('http://localhost/api/session', { method: 'POST' }),
+      buildServices()
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.token).toMatch(/^\d+\.[0-9a-f]{64}$/);
+    expect(body.token_type).toBe('Bearer');
+    expect(body.expires_in).toBe(900);
+    expect(body.expires_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('returns 429 when the rate limiter rejects the session request', async () => {
+    const services = buildServices();
+    services.sessionRateLimiter = {
+      limit: vi.fn(async () => ({ success: false }))
+    };
+
+    const response = await handleFetch(
+      new Request('http://localhost/api/session', { method: 'POST' }),
+      services
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(429);
+    expect(body.error).toContain('Too many session requests');
+    expect(services.sessionRateLimiter.limit).toHaveBeenCalledWith({
+      key: 'unknown'
+    });
+  });
+
+  it('passes the client IP to the rate limiter and issues the token', async () => {
+    const services = buildServices();
+    services.sessionRateLimiter = {
+      limit: vi.fn(async () => ({ success: true }))
+    };
+
+    const response = await handleFetch(
+      new Request('http://localhost/api/session', {
+        method: 'POST',
+        headers: { 'cf-connecting-ip': '203.0.113.7' }
+      }),
+      services
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(services.sessionRateLimiter.limit).toHaveBeenCalledWith({
+      key: '203.0.113.7'
+    });
+    expect(body.token).toMatch(/^\d+\.[0-9a-f]{64}$/);
+  });
+
+  it('accepts a valid session token via Authorization Bearer', async () => {
+    const { token } = await createSessionToken(API_KEY);
+    const response = await handleFetch(
+      new Request('http://localhost/api/entries?filter=NO_FILTER', {
+        headers: { authorization: `Bearer ${token}` }
+      }),
+      buildServices()
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.results).toEqual(entriesFixture);
+  });
+
+  it('rejects an expired session token with 401', async () => {
+    const { token } = await createSessionToken(API_KEY, -10);
+    const services = buildServices();
+
+    const response = await handleFetch(
+      new Request('http://localhost/api/entries?filter=NO_FILTER', {
+        headers: { authorization: `Bearer ${token}` }
+      }),
+      services
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(body.error).toContain('Unauthorized');
+    expect(services.scraper.scrape).not.toHaveBeenCalled();
+  });
+
+  it('rejects a tampered session token with 401', async () => {
+    const { token } = await createSessionToken(API_KEY);
+    const tampered = `${token.slice(0, -1)}${token.at(-1) === 'a' ? 'b' : 'a'}`;
+
+    const response = await handleFetch(
+      new Request('http://localhost/api/entries?filter=NO_FILTER', {
+        headers: { authorization: `Bearer ${tampered}` }
+      }),
+      buildServices()
+    );
+
+    expect(response.status).toBe(401);
+  });
+
+  it('fails closed with 500 when the server has no API key to sign tokens', async () => {
+    const services = buildServices();
+    services.apiKey = undefined;
+
+    const response = await handleFetch(
+      new Request('http://localhost/api/session', { method: 'POST' }),
+      services
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.error).toContain('API key is not configured');
+  });
+
+  it('still accepts the legacy static key sent in x-api-key', async () => {
+    const response = await handleFetch(
+      new Request('http://localhost/api/config', { headers: authHeaders() }),
+      buildServices()
+    );
+
+    expect(response.status).toBe(200);
   });
 });
 

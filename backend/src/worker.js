@@ -10,6 +10,7 @@ import {
   resolveFrequencyHours,
   scheduledFrequencyLabel
 } from './utils/schedule.js';
+import { createSessionToken, verifySessionToken } from './utils/sessionToken.js';
 
 // CORS headers to allow the backend to respond from different origins.
 const CORS_HEADERS = {
@@ -48,14 +49,25 @@ const extractApiKey = (request) => {
   return null;
 };
 
-// Compares the incoming key with the static key configured in the environment.
-const isAuthorized = (request, apiKey) => {
+// Compares the incoming credential (static key or session token) with the
+// configured secret. Session tokens are HMAC-signed by POST /api/session, so
+// the static key itself never needs to reach the browser.
+const isAuthorized = async (request, apiKey) => {
   if (!apiKey) {
     return false;
   }
 
-  const providedKey = extractApiKey(request);
-  return providedKey !== null && providedKey === apiKey;
+  const providedCredential = extractApiKey(request);
+
+  if (providedCredential === null) {
+    return false;
+  }
+
+  if (providedCredential === apiKey) {
+    return true;
+  }
+
+  return verifySessionToken(apiKey, providedCredential);
 };
 
 // Creates all the services used by the worker.
@@ -80,7 +92,9 @@ export const createServices = (env = {}) => {
     },
     repository,
     // Static API key required for each HTTP request.
-    apiKey: env.API_KEY
+    apiKey: env.API_KEY,
+    // Rate limiter binding guarding the session endpoint (optional locally).
+    sessionRateLimiter: env.SESSION_RATE_LIMITER
   };
 };
 
@@ -208,6 +222,30 @@ const handleUsageLog = async (request, services) => {
   return json({ log_id: logId, filter_applied: payload.filter_applied });
 };
 
+// Issues a short-lived HMAC-signed bearer token so clients never need to
+// embed the static API key in their public bundles.
+const handleSession = async (request, services) => {
+  const limiter = services.sessionRateLimiter;
+
+  if (limiter && typeof limiter.limit === 'function') {
+    const clientKey = request.headers.get('cf-connecting-ip') || 'unknown';
+    const { success } = await limiter.limit({ key: clientKey });
+
+    if (!success) {
+      return json({ error: 'Too many session requests, try again later' }, 429);
+    }
+  }
+
+  const { token, expiresAt, expiresIn } = await createSessionToken(services.apiKey);
+
+  return json({
+    token,
+    token_type: 'Bearer',
+    expires_in: expiresIn,
+    expires_at: new Date(expiresAt * 1000).toISOString()
+  });
+};
+
 // Main router for handling all HTTP requests to the worker.
 export const handleFetch = async (request, services) => {
   try {
@@ -221,19 +259,25 @@ export const handleFetch = async (request, services) => {
       return json({ error: 'API key is not configured on the server' }, 500);
     }
 
-    // Requires the static API key in every request (GET, PUT, POST, DELETE).
-    if (!isAuthorized(request, services.apiKey)) {
+    const url = new URL(request.url);
+    const { pathname } = url;
+
+    // Issues a short-lived session token; runs before the API key check
+    // because obtaining a token is the unauthenticated entry point.
+    if (request.method === 'POST' && pathname === '/api/session') {
+      return await handleSession(request, services);
+    }
+
+    // Requires the static API key or a valid session token on every other request.
+    if (!(await isAuthorized(request, services.apiKey))) {
       return json(
         {
           error: 'Unauthorized: missing or invalid API key',
-          header: 'x-api-key: <API_KEY> (or Authorization: Bearer <API_KEY>)'
+          header: 'Authorization: Bearer <session token from POST /api/session> (or x-api-key: <API_KEY>)'
         },
         401
       );
     }
-
-    const url = new URL(request.url);
-    const { pathname } = url;
 
     // Base route: service information and available endpoints.
     if (request.method === 'GET' && pathname === '/') {
@@ -241,6 +285,7 @@ export const handleFetch = async (request, services) => {
         service: 'hacker-news-scraper',
         status: 'ok',
         endpoints: [
+          'POST /api/session',
           'GET /api/entries?filter=NO_FILTER | MORE_THAN_5_WORDS_BY_COMMENTS | LESS_OR_EQUAL_5_WORDS_BY_POINTS',
           'GET /api/scrape',
           'GET /api/config',

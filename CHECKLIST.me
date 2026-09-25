@@ -99,7 +99,7 @@ Status legend: **[x]** completed · **[~]** completed with observation · **[ ]*
 - [x] `worker.js` scheduled handler (cron trigger)
 - [x] `wrangler.toml` with base hourly trigger (`0 * * * *`)
 - [~] **Observation — Firestore-driven schedule:** the cron only wakes the Worker hourly; the real frequency is decided at runtime from `system_config` (`frequency_hours` + `last_run_hour`). `PUT /api/config` anchors `last_run_hour`; `handleScheduled` skips with `frequency_not_reached` until N hours elapse. No redeploy needed when changing frequency.
-- [~] **Observation — API key security (added requirement):** the main router enforces a **static API key** on every non-OPTIONS request (`x-api-key` or `Authorization: Bearer`). Missing/invalid key → **401**; server without configured key → **500** (fail-closed). Key stored as a Cloudflare secret (`wrangler secret put API_KEY`); local dev uses gitignored `backend/.dev.vars` (Cloudflare rejects a `[vars] API_KEY` binding coexisting with the secret: `10053`). CORS allows `x-api-key` and `authorization` headers. Covered by unit tests in `worker.test.js`.
+- [~] **Observation — API key security (added requirement):** every non-OPTIONS request requires credentials: a **short-lived session token** from `POST /api/session` (HMAC-SHA256, 15-min TTL, rate-limited 60/min/IP) or the legacy static key (`x-api-key` / `Authorization: Bearer <API_KEY>`). Missing/invalid credentials → **401**; server without configured key → **500** (fail-closed). Key stored as a Cloudflare secret (`wrangler secret put API_KEY`); local dev uses gitignored `backend/.dev.vars` (Cloudflare rejects a `[vars] API_KEY` binding coexisting with the secret: `10053`). The frontend never embeds the key (no `VITE_API_KEY`); CORS allows `x-api-key` and `authorization` headers. Covered by unit tests in `worker.test.js` + `sessionToken.test.js`.
 - [~] **Observation:** `NO_FILTER` must not be a named export of `worker.js` (workerd treats named exports as handlers)
 
 ### Step 5 — Frontend (React + Vite)
@@ -108,8 +108,8 @@ Status legend: **[x]** completed · **[~]** completed with observation · **[ ]*
 - [x] Reactive results table (`ResultsTable`)
 - [x] Realtime logs component connected to Firestore via `onSnapshot`
 - [x] Execution mode selector (Manual vs Scheduled) with frequency in hours persisted as `frequency_hours`
-- [x] Services: `api.js` (Worker HTTP client with API key header), `firebase.js` (init + subscriptions)
-- [~] **Observation:** results also default from `entries_cache` realtime subscription; API client sends `x-api-key` on every request
+- [x] Services: `api.js` (Worker HTTP client with automatic session tokens), `firebase.js` (init + subscriptions)
+- [~] **Observation:** results also default from `entries_cache` realtime subscription; API client obtains a bearer token from `POST /api/session` and renews it before expiry
 
 ### Step 6 — UI refinement (AI-assisted phase)
 
@@ -136,7 +136,7 @@ Status legend: **[x]** completed · **[~]** completed with observation · **[ ]*
 
 ## 6. Additional observations (post-spec enhancements)
 
-- [~] **Static API key in Worker router** — required for every GET/PUT/POST; frontend client injects the header; local default matches `wrangler.toml`.
+- [~] **Session tokens instead of a browser-held API key** — `POST /api/session` issues 15-min HMAC bearer tokens (rate-limited 60/min/IP); frontend holds no secret; legacy static key still accepted for scripts.
 - [~] **Dual persistence strategy** — SDK repository (Node/tests) + REST repository (Cloudflare Workers) behind the same interface.
 - [~] **`NO_FILTER` endpoint & UI option** — unfiltered view by default; audits as `filter_applied: "NO_FILTER"`.
 - [~] **Phase 6 UI redesign** — `TopBar` + `Modal` + chip filters + results-first layout (implemented with AI assistance as specified in Step 6).
@@ -156,4 +156,4 @@ Status legend: **[x]** completed · **[~]** completed with observation · **[ ]*
 
 ---
 
-**Overall:** all functional requirements from `Requirements.md` are implemented. Observations mark additive work (API key auth, REST repository, `NO_FILTER`, Phase 6 UI) and the one spec item intentionally skipped (`domain/Entry.js`).
+**Overall:** all functional requirements from `Requirements.md` are implemented. Observations mark additive work (session-token auth, REST repository, `NO_FILTER`, Phase 6 UI) and the one spec item intentionally skipped (`domain/Entry.js`).

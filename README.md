@@ -26,7 +26,7 @@ Full-stack solution that scrapes the **top 30 Hacker News entries**, filters and
 │                        FRONTEND (React + Vite)                              │
 │  TopBar menu · Filter chips · Results table · Modals (Logs / Execution)     │
 └──────────────┬──────────────────────────────────────┬───────────────────────┘
-               │ 1. HTTP API (fetch + x-api-key)     │ 2. Realtime onSnapshot
+               │ 1. HTTP API (Bearer session token)   │ 2. Realtime onSnapshot
                ▼                                      ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         FIREBASE FIRESTORE                                  │
@@ -36,7 +36,7 @@ Full-stack solution that scrapes the **top 30 Hacker News entries**, filters and
                │                                      │
 ┌──────────────┴──────────────────────────────────────┴───────────────────────┐
 │                   BACKEND (Cloudflare Worker)                               │
-│  fetch router (API key)              scheduled handler (cron)               │
+│  fetch router (session auth)          scheduled handler (cron)               │
 │           └──────────────┬─────────────────────┘                            │
 │                          ▼                                                  │
 │               HackerNewsScraper ──► WordCounter + Strategies                │
@@ -62,8 +62,8 @@ Each deployed piece has a single responsibility and only talks through the inter
 
 | Component | Runs on | Responsibility |
 |---|---|---|
-| **Frontend** (`frontend/`) | Cloudflare Pages (static bundle) | UI: filter chips, results table, Logs/Execution modals. Calls the Worker API with `x-api-key`; reads `usage_logs` and `entries_cache` **directly from Firestore** via `onSnapshot` (realtime, no polling). All **writes** go through the Worker API so every action is authenticated and audited. |
-| **Fetch router** (`handleFetch` in `worker.js`) | Cloudflare Worker — HTTP | Authenticates every non-OPTIONS request and dispatches: `/` (service info), `/api/entries` (scrape → strategy → audit), `/api/scrape` (scrape → save cache), `/api/config` `GET`/`PUT`, `POST /api/logs`. |
+| **Frontend** (`frontend/`) | Cloudflare Pages (static bundle) | UI: filter chips, results table, Logs/Execution modals. Calls the Worker API with a short-lived **Bearer session token** fetched from `POST /api/session` (the static API key never enters the bundle); reads `usage_logs` and `entries_cache` **directly from Firestore** via `onSnapshot` (realtime, no polling). All **writes** go through the Worker API so every action is authenticated and audited. |
+| **Fetch router** (`handleFetch` in `worker.js`) | Cloudflare Worker — HTTP | Issues session tokens (`POST /api/session`, rate-limited), authenticates every non-OPTIONS request (session token or legacy API key) and dispatches: `/` (service info), `/api/entries` (scrape → strategy → audit), `/api/scrape` (scrape → save cache), `/api/config` `GET`/`PUT`, `POST /api/logs`. |
 | **Cron handler** (`handleScheduled` in `worker.js`) | Cloudflare Worker — cron trigger | Wakes the Worker **every hour** (`0 * * * *` from `wrangler.toml`), reads `system_config` and applies the schedule gate (`cron_enabled`, `frequency_hours` vs `last_run_hour`): scrapes and audits `SCHEDULED` only when due, otherwise skips. |
 | **HackerNewsScraper** | inside the Worker | Primary source: cheerio parse of `news.ycombinator.com`; automatic fallback to the official HN API on network error / HTTP 419 / empty parse (business rule 7). Always returns the same 30-entry `Entry[]` shape. |
 | **WordCounter + Strategies** | inside the Worker (pure) | Business rules: word count and the two filters; strategies receive an injected `WordCounter` (DIP) and are selected by the router at runtime. |
@@ -80,7 +80,7 @@ Each deployed piece has a single responsibility and only talks through the inter
 
 **The two flows**
 
-- **Manual request** — browser → `GET /api/entries?filter=…` (+ `x-api-key`) → router → scraper (HTML, API fallback) → strategy → write `usage_logs` → JSON response; the Logs and Results panels refresh in realtime through their Firestore subscriptions.
+- **Manual request** — browser → `POST /api/session` (once per ~15 min, obtains `Bearer` token) → `GET /api/entries?filter=…` (+ `Authorization: Bearer <token>`) → router → scraper (HTML, API fallback) → strategy → write `usage_logs` → JSON response; the Logs and Results panels refresh in realtime through their Firestore subscriptions.
 - **Scheduled run** — Cloudflare wakes the Worker hourly → `handleScheduled` → gate decides scrape vs skip → scrape → `entries_cache/latest` + `last_run_hour` + `usage_logs` (`SCHEDULED`, reason `each N h`).
 
 ---
@@ -202,14 +202,12 @@ npm run dev
 
 Open **http://localhost:5173**.
 
-Optional env (defaults shown) in `frontend/.env.local`:
+**No environment variables are needed.** There is no `.env.local` to create for local development:
 
-```bash
-VITE_API_BASE_URL=http://localhost:8787
-VITE_API_KEY=hn-scraper-7f3a9c2e1b8d4f6a-static
-```
+- `VITE_API_BASE_URL` defaults to `http://localhost:8787` (the local `wrangler dev` Worker).
+- There is no `VITE_API_KEY`: the UI requests a short-lived token from `POST /api/session` at runtime, so the static key never enters the bundle.
 
-Restart `npm run dev` after changing env files.
+The only variable used by this project is `VITE_API_BASE_URL`, and only for the **production build** (Step 6), where it must point to the deployed Worker URL.
 
 ### 3. Smoke check
 
@@ -220,8 +218,11 @@ curl -H "x-api-key: hn-scraper-7f3a9c2e1b8d4f6a-static" http://localhost:8787/
 # Unauthenticated request must return 401
 curl -i http://localhost:8787/api/config
 
-# Scrape + list (expect results_count: 30)
-curl -H "x-api-key: hn-scraper-7f3a9c2e1b8d4f6a-static" \
+# Session token flow (no static key needed after this point)
+TOKEN=$(curl -s -X POST http://localhost:8787/api/session | sed 's/.*"token":"\([^"]*\)".*/\1/')
+
+# Scrape + list with the token (expect results_count: 30)
+curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8787/api/entries?filter=NO_FILTER"
 ```
 
@@ -336,7 +337,7 @@ Dashboard alternative: **Workers & Pages** → `hacker-news-scraper` → **Setti
 Notes:
 
 - Secrets apply **immediately** — no redeploy needed (redeploy only when the code changed).
-- **Frontend/Worker sync:** the UI sends `VITE_API_KEY` on every request. After rotating `API_KEY`, rebuild the frontend with the matching `VITE_API_KEY` and republish (Step 6), otherwise the UI shows `401 Unauthorized`.
+- **No frontend rebuild on rotation:** the UI never sees `API_KEY`; it holds only short-lived session tokens (≤ 15 min), so after rotating the secret the next `POST /api/session` picks it up automatically.
 - Never print or commit the value; `npx wrangler secret list` only shows names, not values.
 
 ### Step 4 — Cron: hourly base wake + UI frequency
@@ -413,9 +414,12 @@ curl -H "x-api-key: $KEY" "$WORKER/"
 # → { "service": "hacker-news-scraper", "status": "ok", … }
 
 curl -i "$WORKER/api/entries"
-# → HTTP 401 Unauthorized (fail-closed without key)
+# → HTTP 401 Unauthorized (fail-closed without credentials)
 
-curl -H "x-api-key: $KEY" "$WORKER/api/entries?filter=NO_FILTER"
+# Session flow: exchange nothing for a 15-min token, then call the API with it
+TOKEN=$(curl -s -X POST "$WORKER/api/session" | sed 's/.*"token":"\([^"]*\)".*/\1/')
+
+curl -H "Authorization: Bearer $TOKEN" "$WORKER/api/entries?filter=NO_FILTER"
 # → "results_count": 30
 
 curl -H "x-api-key: $KEY" "$WORKER/api/scrape"
@@ -433,7 +437,6 @@ bash/zsh:
 ```bash
 cd frontend
 export VITE_API_BASE_URL="https://hacker-news-scraper.<account>.workers.dev"
-export VITE_API_KEY="<same-key-as-the-worker-secret>"
 ```
 
 PowerShell:
@@ -441,7 +444,6 @@ PowerShell:
 ```powershell
 cd frontend
 $env:VITE_API_BASE_URL="https://hacker-news-scraper.<account>.workers.dev"
-$env:VITE_API_KEY="<same-key-as-the-worker-secret>"
 ```
 
 Then lint, test, build and publish:
@@ -455,7 +457,7 @@ npx wrangler pages deploy dist --project-name=scropcombinator
 ```
 
 - The first run creates the Pages project `scropcombinator` → **`https://scropcombinator.pages.dev`**; later runs publish a new deployment to the same URL.
-- Dashboard alternative: **Workers & Pages → Create → Pages** → build command `npm run build`, output directory `dist`, and define `VITE_API_BASE_URL` + `VITE_API_KEY` under **Settings → Environment variables** (Production **and** Preview) *before* the first build.
+- Dashboard alternative: **Workers & Pages → Create → Pages** → build command `npm run build`, output directory `dist`, and define `VITE_API_BASE_URL` under **Settings → Environment variables** (Production **and** Preview) *before* the first build.
 - CORS: the Worker answers with `access-control-allow-origin: *`, so the Pages domain can call the API.
 
 ### Step 7 — End-to-end check
@@ -474,7 +476,8 @@ npx wrangler pages deploy dist --project-name=scropcombinator
 - [ ] Dashboard → Triggers shows base cron `0 * * * *`
 - [ ] UI **Execution** → **Scheduled** + **Every N hours** saved (`cron_enabled: true`, `frequency_hours: N`)
 - [ ] `/api/entries?filter=NO_FILTER` returns `results_count: 30`
-- [ ] Frontend built with production `VITE_API_BASE_URL` + matching `VITE_API_KEY`, published to Pages
+- [ ] Frontend built with production `VITE_API_BASE_URL`, published to Pages (**no API key** in the bundle)
+- [ ] `POST /api/session` returns a token; `GET /api/entries` with `Authorization: Bearer <token>` returns `results_count: 30`
 - [ ] UI loads 30 rows; Logs modal updates in realtime
 
 More detail (troubleshooting, dashboard steps): **`install.me`**.
@@ -523,7 +526,8 @@ Historical results per step are recorded in `testresults.me`.
 | `FirestoreRepository.test.js` | Unit | Abstract `BaseRepository` (DIP/LSP) + SDK repository: `saveUsageLog` fields, `execution_type` MANUAL/SCHEDULED/ORDER/SEARCH, invalid type rejected, `saveEntries`, `getSystemConfig`, `updateSystemConfig` |
 | `FirestoreRepository.integration.test.js` | Integration (live Firestore) | Real writes/reads for entries, usage logs, system config (`npm run test:firestore`) |
 | `FirestoreRestRepository.test.js` | Unit | REST repository for Workers: Firestore REST encode/decode, validation without calling API, ORDER/SEARCH accepted |
-| `worker.test.js` | Unit | Router: API key auth (401/500/Bearer), CORS OPTIONS, NO_FILTER, business filters, `/api/scrape`, `/api/config`, **`POST /api/logs` (ORDER/SEARCH)**, cron `handleScheduled` |
+| `worker.test.js` | Unit | Router: API key auth (401/500/Bearer), **session tokens** (`POST /api/session` 200/429, Bearer valid/expired/tampered, fail-closed 500, legacy key), CORS OPTIONS, NO_FILTER, business filters, `/api/scrape`, `/api/config`, **`POST /api/logs` (ORDER/SEARCH)**, cron `handleScheduled` |
+| `sessionToken.test.js` | Unit | HMAC session tokens (`utils/sessionToken.js`): token shape `<expiry>.<64-hex>`, TTL 900 s, verify fresh, reject expired/forged expiry/tampered signature/wrong secret/malformed credentials |
 | `schedule.test.js` | Unit | Shared schedule/audit helpers (`utils/schedule.js`): `buildSaveReason`, `currentHourKey`, `hoursBetween`, `resolveFrequencyHours`, `scheduledFrequencyLabel` |
 | `ScrapeAndSave.integration.test.js` | Integration (E2E) | Scrape real HN → save `entries_cache` → audit log for MANUAL and SCHEDULED flows; SCHEDULED label read from real `system_config.frequency_hours` |
 
@@ -544,7 +548,7 @@ Historical results per step are recorded in `testresults.me`.
 | **Strategy pattern for filters** | OCP: new filters without modifying existing classes; easy unit testing with injected `WordCounter`. |
 | **Cheerio for scraping** | Server-side HTML parsing without a browser; fast and testable with fixture HTML. |
 | **Official HN API fallback** | Cloudflare Worker IPs are blocked by `news.ycombinator.com` (HTTP **419 "Sorry"**) and markup changes would silently yield 0 entries, so `scrape()` keeps cheerio as primary and falls back to `hacker-news.firebaseio.com/v0` (`topstories` + `item/<id>`, 31 subrequests — free limit is 50) on network error, non-OK status, or an empty parse; field mapping is `score → points`, `descendants → comments` (default `0`). Both sources failing → combined **500** error. |
-| **Static API key on every HTTP request** | Lightweight auth so arbitrary clients cannot GET/PUT the API; header `x-api-key` or `Authorization: Bearer`. OPTIONS (CORS preflight) is exempt. The key exists only in the gitignored `backend/.dev.vars` (local `wrangler dev`) and as the Cloudflare secret `API_KEY` (production) — never in `wrangler.toml`, where a `[vars]` binding colliding with the secret is rejected at deploy (`10053`). |
+| **Session tokens instead of a browser-held API key** | A `VITE_*` variable is compiled into the public bundle, so embedding the API key would expose it to anyone with DevTools. The Worker now issues short-lived HMAC-SHA256 bearer tokens from `POST /api/session` (TTL 15 min, signed with the server-only secret, rate-limited 60/min/IP via a `[[ratelimits]]` binding); the browser keeps the token in memory and renews it before expiry. The static key still works (`x-api-key` / `Bearer <API_KEY>`) for scripts and backwards compatibility, and exists only in the gitignored `backend/.dev.vars` (local `wrangler dev`) and as the Cloudflare secret `API_KEY` (production) — never in `wrangler.toml`, where a `[vars]` binding colliding with the secret is rejected at deploy (`10053`). |
 | **Realtime via `onSnapshot`** | Audit logs and `entries_cache` update without polling; matches the architecture diagram. |
 | **`NO_FILTER` default in UI** | Users see results immediately from cache; filters are opt-in. |
 | **Firestore-driven schedule (hourly base wake)** | Cloudflare only accepts fixed cron expressions, so `wrangler.toml` wakes the Worker every hour (`0 * * * *`) and Firestore decides the actual frequency: `handleScheduled` compares `frequency_hours` against `last_run_hour` (hour key without minutes) and skips with `frequency_not_reached` until N hours elapse; `PUT /api/config` anchors `last_run_hour` on every save. Frequency is chosen in the UI and never requires a redeploy, and the audit label `each N h` is derived from the stored config (`utils/schedule.js`) so logs always match the user's choice. **Note:** This feature is used to provide a better user experience |
@@ -566,29 +570,34 @@ All four are implemented as pure helpers in `frontend/src/utils/entriesView.js` 
 
 ## API reference
 
-All routes (except `OPTIONS`) require `x-api-key` or `Authorization: Bearer <API_KEY>`.
+All routes (except `OPTIONS` and `POST /api/session`) require credentials:
+`Authorization: Bearer <session token>` (recommended) or the legacy
+`x-api-key: <API_KEY>` / `Authorization: Bearer <API_KEY>`.
 
 | Method | Path | Description |
 |---|---|---|
+| `POST` | `/api/session` | **No auth.** Issue a short-lived bearer token `{ token, token_type, expires_in, expires_at }`; rate-limited 60 req/min per IP (`429` when exceeded) |
 | `GET` | `/` | Service info |
 | `GET` | `/api/entries?filter=NO_FILTER\|MORE_THAN_5_WORDS_BY_COMMENTS\|LESS_OR_EQUAL_5_WORDS_BY_POINTS` | Scrape, filter, audit (`MANUAL`) |
 | `GET` | `/api/scrape` | Scrape and save to `entries_cache` |
 | `GET` | `/api/config` | Read `system_config` |
 | `PUT` | `/api/config` | Merge update `system_config` (anchors `last_run_hour`) |
 | `POST` | `/api/logs` | Save UI audit log (`ORDER` / `SEARCH`) |
-| `OPTIONS` | `*` | CORS preflight (no API key) |
+| `OPTIONS` | `*` | CORS preflight (no credentials) |
 
 Cron (local test): `curl "http://127.0.0.1:8787/cdn-cgi/local/scheduled"`  
 Production schedule: base wake `0 * * * *` (hourly), gated by `cron_enabled` + `frequency_hours` vs `last_run_hour` in Firestore.
 
-Error codes: `400` invalid filter/body · `401` missing/invalid API key · `404` unknown route · `500` upstream/server errors (including missing server API key config).
+Error codes: `400` invalid filter/body · `401` missing/invalid credentials · `404` unknown route · `429` session rate limit exceeded · `500` upstream/server errors (including missing server API key config).
 
 ---
 
 ## Security
 
-- **API key** required on every non-OPTIONS request; fail-closed if not configured (`500`).
-- CORS allows `content-type`, `x-api-key`, `authorization` from any origin (tighten `access-control-allow-origin` for production).
+- **Short-lived bearer tokens.** The static API key is never sent by the browser: the client calls `POST /api/session` (unauthenticated entry point) and receives an HMAC-SHA256 token valid for 15 minutes, renewed 60 s before expiry and retried once on `401`. Signature and expiry are verified server-side in constant time.
+- **Rate limiting** on `POST /api/session` (`[[ratelimits]]` → 60 req/min per IP) so tokens cannot be farmed.
+- **Fail-closed**: every non-OPTIONS request requires credentials; a server without `API_KEY` answers `500` and cannot mint tokens. Legacy `x-api-key` / `Bearer <API_KEY>` still accepted for scripts.
+- CORS allows `content-type`, `x-api-key`, `authorization` from any origin (`access-control-allow-origin: *`). Restricting the origin is deliberately out of scope: the token, not the header, is the real gate; `*` only permits preflighted reads.
 - Production `API_KEY` lives **only** as a Cloudflare secret; local dev uses the gitignored `backend/.dev.vars`. Never put it in `wrangler.toml` (`[vars]` colliding with an existing secret fails the deploy with `10053`) and never commit it.
 
 ---

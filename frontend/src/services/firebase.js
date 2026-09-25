@@ -1,5 +1,14 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import {
+  getFirestore,
+  collection,
+  query,
+  orderBy,
+  limit,
+  startAfter,
+  onSnapshot,
+  getCountFromServer
+} from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyCcO5oXonWAMTCcdRRa1Q-bczWCyhZdwog',
@@ -13,24 +22,24 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-export const subscribeUsageLogs = (onLogs, onError) => {
-  const logsQuery = query(
-    collection(db, 'usage_logs'),
-    orderBy('timestamp', 'desc'),
-    limit(50)
-  );
+// One query per page: never returns more than `pageSize` rows (10/20/50).
+// `cursor` is the last doc of the previous page (null = first page).
+export const subscribeUsageLogsPage = (cursor, pageSize, onDocs, onError) => {
+  const constraints = [orderBy('timestamp', 'desc'), limit(pageSize)];
 
-  return onSnapshot(
-    logsQuery,
-    (snapshot) => {
-      const logs = snapshot.docs.map((docSnapshot) => ({
-        id: docSnapshot.id,
-        ...docSnapshot.data()
-      }));
-      onLogs(logs);
-    },
-    onError
-  );
+  if (cursor) {
+    constraints.push(startAfter(cursor));
+  }
+
+  return onSnapshot(query(collection(db, 'usage_logs'), ...constraints), (snapshot) => {
+    onDocs(snapshot.docs);
+  }, onError);
+};
+
+// Total number of documents in usage_logs (cheap aggregation, not a scan).
+export const countUsageLogs = async () => {
+  const snapshot = await getCountFromServer(collection(db, 'usage_logs'));
+  return snapshot.data().count;
 };
 
 export const subscribeEntriesCache = (onEntries, onError) => {

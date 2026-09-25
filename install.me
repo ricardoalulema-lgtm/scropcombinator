@@ -132,7 +132,7 @@ crons = ["0 * * * *"]
 
 | Variable | Required | Where it lives | Description |
 |---|---|---|---|
-| `API_KEY` | **Yes** | `backend/.dev.vars` (local) · Cloudflare **secret** (prod) | Static API key. Every HTTP request (except `OPTIONS`) must send `x-api-key: <API_KEY>` or `Authorization: Bearer <API_KEY>`. If missing at runtime the Worker returns **500** (fail-closed). |
+| `API_KEY` | **Yes** | `backend/.dev.vars` (local) · Cloudflare **secret** (prod) | Server-only secret used to sign session tokens; also accepted directly as legacy credential (`x-api-key: <API_KEY>` or `Authorization: Bearer <API_KEY>`). Browsers use short-lived tokens from `POST /api/session` instead. If missing at runtime the Worker returns **500** (fail-closed). |
 | `FIREBASE_PROJECT_ID` | No | `firebaseConfig.js` default; secret to override | Overrides Firebase project id. Default comes from `firebaseConfig.js` (`test-2eb64`). |
 | `FIREBASE_API_KEY` | No | `firebaseConfig.js` default; secret to override | Overrides Firebase web API key. Default from `firebaseConfig.js`. |
 
@@ -174,12 +174,13 @@ wget http://127.0.0.1:8787
 
 | Endpoint | Method | Auth | Purpose |
 |---|---|---|---|
-| `/` | GET | API key | Health / service info |
-| `/api/entries?filter=NO_FILTER` | GET | API key | Scrape + optional filter + audit |
-| `/api/entries?filter=MORE_THAN_5_WORDS_BY_COMMENTS` | GET | API key | Business filter 1 |
-| `/api/entries?filter=LESS_OR_EQUAL_5_WORDS_BY_POINTS` | GET | API key | Business filter 2 |
-| `/api/scrape` | GET | API key | Scrape + save to `entries_cache` |
-| `/api/config` | GET / PUT | API key | Read / update cron configuration |
+| `/api/session` | POST | **None** (rate-limited 60/min/IP) | Issue a 15-minute bearer token |
+| `/` | GET | Token / API key | Health / service info |
+| `/api/entries?filter=NO_FILTER` | GET | Token / API key | Scrape + optional filter + audit |
+| `/api/entries?filter=MORE_THAN_5_WORDS_BY_COMMENTS` | GET | Token / API key | Business filter 1 |
+| `/api/entries?filter=LESS_OR_EQUAL_5_WORDS_BY_POINTS` | GET | Token / API key | Business filter 2 |
+| `/api/scrape` | GET | Token / API key | Scrape + save to `entries_cache` |
+| `/api/config` | GET / PUT | Token / API key | Read / update cron configuration |
 | `OPTIONS` | * | **None** | CORS preflight |
 
 **Stop the server:** `Ctrl+C` in that terminal.
@@ -217,32 +218,33 @@ Scripts available:
 
 ## 7. Environment variables — frontend
 
-Vite exposes variables prefixed with `VITE_` to the browser bundle.
+Vite exposes variables prefixed with `VITE_` to the browser bundle — **never** put secrets there.
 
 Create **`frontend/.env.local`** (recommended; not committed):
 
 ```bash
 # frontend/.env.local
 VITE_API_BASE_URL=http://localhost:8787
-VITE_API_KEY=hn-scraper-7f3a9c2e1b8d4f6a-static
 ```
 
 | Variable | Required | Description |
 |---|---|---|
 | `VITE_API_BASE_URL` | Prod: **Yes** / Local: optional | Base URL of the Worker API. Default in code: `http://localhost:8787`. |
-| `VITE_API_KEY` | **Yes** | Must equal the Worker’s `API_KEY`. Default in code matches the sample `wrangler.toml` value. |
+
+There is **no `VITE_API_KEY`**: the frontend requests a short-lived bearer
+token from `POST /api/session` at runtime (15-minute TTL, renewed
+automatically), so the static API key never reaches the public bundle.
 
 **Rules:**
 
 1. After changing `.env.local`, **restart** `npm run dev` (Vite does not hot-reload env files).
-2. Anything starting with `VITE_` is **public** in the browser bundle — treat `VITE_API_KEY` as a low-sensitivity shared secret for this demo; for a public production product use a tighter auth design (session/JWT).
+2. Anything starting with `VITE_` is **public** in the browser bundle — only put URLs/build config there.
 3. For production builds, set the env vars **before** `npm run build`.
 
 Example PowerShell:
 
 ```powershell
 $env:VITE_API_BASE_URL="https://hacker-news-scraper.<account>.workers.dev"
-$env:VITE_API_KEY="hn-scraper-7f3a9c2e1b8d4f6a-static"
 npm run build
 ```
 
@@ -250,7 +252,6 @@ Example bash/zsh:
 
 ```bash
 export VITE_API_BASE_URL="https://hacker-news-scraper.<account>.workers.dev"
-export VITE_API_KEY="hn-scraper-7f3a9c2e1b8d4f6a-static"
 npm run build
 ```
 
@@ -300,7 +301,21 @@ curl -H "x-api-key: hn-scraper-7f3a9c2e1b8d4f6a-static" http://localhost:8787/
 
 Expect JSON: `"status": "ok"`.
 
-### 9.2 Unauthenticated request must fail
+### 9.2 Session token flow (what the UI does)
+
+```bash
+# Obtain a 15-minute bearer token (no credentials required)
+curl -s -X POST http://localhost:8787/api/session
+
+# Use it on any protected route
+TOKEN=$(curl -s -X POST http://localhost:8787/api/session | sed 's/.*"token":"\([^"]*\)".*/\1/')
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/entries?filter=NO_FILTER"
+```
+
+Expect `"results_count": 30`. Exceeding 60 session requests/minute returns **429**.
+
+### 9.3 Unauthenticated request must fail
 
 ```bash
 curl -i http://localhost:8787/api/config
@@ -308,7 +323,7 @@ curl -i http://localhost:8787/api/config
 
 Expect **HTTP 401** with `Unauthorized: missing or invalid API key`.
 
-### 9.3 Scrape + filter
+### 9.4 Legacy static key (scripts / backwards compatibility)
 
 ```bash
 curl -H "x-api-key: hn-scraper-7f3a9c2e1b8d4f6a-static" \
@@ -317,12 +332,12 @@ curl -H "x-api-key: hn-scraper-7f3a9c2e1b8d4f6a-static" \
 
 Expect `"results_count": 30`.
 
-### 9.4 Frontend
+### 9.5 Frontend
 
 1. http://localhost:5173 loads without console errors.
 2. **Audit logs** modal eventually shows rows (Firestore realtime).
 3. **Load all** / **Apply filter** returns a table of results.
-4. Wrong API key in `.env.local` → red error banner (`Unauthorized…`).
+4. Worker stopped or key rotated server-side → red error banner (`Unauthorized…`); restarting the Worker restores the UI without rebuilding it.
 
 ---
 
@@ -450,15 +465,14 @@ npx wrangler secret delete API_KEY
 echo "my-production-key" | npx wrangler secret put API_KEY
 ```
 
-### 12.4 Keep frontend and Worker in sync
+### 12.4 No frontend sync needed on key rotation
 
 After changing the production key:
 
 1. Update Worker secret (`API_KEY`).
-2. Rebuild frontend with matching `VITE_API_KEY`.
-3. Redeploy/publish the frontend.
+2. Done — the frontend only holds short-lived tokens (≤ 15 min); the next `POST /api/session` issues tokens signed with the new secret. No rebuild/redeploy of the Pages site.
 
-Mismatch symptoms: frontend banners with `401 Unauthorized`.
+Old tokens signed with the previous secret stop validating immediately (they return `401` once and the UI retries with a fresh token).
 
 ---
 
@@ -554,9 +568,8 @@ Any static host works (Cloudflare Pages, Netlify, Vercel, S3…). Example with *
 ```bash
 cd frontend
 
-# 1) Set production env (use the deployed Worker URL + matching API key)
+# 1) Set production env (the deployed Worker URL; no API key — the UI gets session tokens)
 export VITE_API_BASE_URL="https://hacker-news-scraper.<account>.workers.dev"
-export VITE_API_KEY="hn-scraper-7f3a9c2e1b8d4f6a-static"
 
 # 2) Lint + build
 npm run lint
@@ -570,7 +583,7 @@ Dashboard alternative:
 
 1. **Workers & Pages** → **Create** → **Pages** → upload/`dist` or connect Git.
 2. Build command: `npm run build` · Output directory: `dist`.
-3. Define Environment variables `VITE_API_BASE_URL` and `VITE_API_KEY` in Pages **Settings → Environment variables** (Production + Preview) **before** build.
+3. Define Environment variable `VITE_API_BASE_URL` in Pages **Settings → Environment variables** (Production + Preview) **before** build. No API key variable exists anymore.
 
 CORS: the Worker already returns `access-control-allow-origin: *`, so the Pages domain can call the API.
 
@@ -584,7 +597,7 @@ CORS: the Worker already returns `access-control-allow-origin: *`, so the Pages 
 - [ ] `API_KEY` present (`.dev.vars` for local · Cloudflare secret for prod — not in `wrangler.toml`)
 - [ ] Backend: `npx wrangler dev --port 8787` → health JSON with API key
 - [ ] Backend: request without key → 401
-- [ ] Frontend: `.env.local` points to local Worker + same key
+- [ ] Frontend: `.env.local` points to local Worker (no key variable needed)
 - [ ] Frontend: `npm run dev` → http://localhost:5173 works
 - [ ] `cd backend && npm test` green
 - [ ] `cd frontend && npm run lint && npm run build` green
@@ -592,7 +605,8 @@ CORS: the Worker already returns `access-control-allow-origin: *`, so the Pages 
 - [ ] (Prod) `npx wrangler secret put API_KEY` with strong key
 - [ ] (Prod) Dashboard → Triggers shows base cron `0 * * * *` (hourly wake)
 - [ ] (Prod) UI Execution → Scheduled + **Every N hours** saved (`cron_enabled: true`, `frequency_hours: N`)
-- [ ] (Prod) Frontend rebuilt with production `VITE_API_BASE_URL` / `VITE_API_KEY`
+- [ ] (Prod) Frontend rebuilt with production `VITE_API_BASE_URL` only (bundle contains **no API key**)
+- [ ] (Prod) `POST /api/session` returns a token → `GET /api/entries` with `Authorization: Bearer <token>` → `results_count: 30`
 
 ---
 
@@ -603,7 +617,7 @@ CORS: the Worker already returns `access-control-allow-origin: *`, so the Pages 
 | `ERR_CONNECTION_REFUSED` on `:8787` | Wrangler not running / crashed | Restart `npx wrangler dev --port 8787`; check for startup TypeError |
 | Worker fails: *Incorrect type for map entry …* | A non-handler **named export** in `worker.js` | Export only handlers; keep constants local (e.g. `NO_FILTER`) |
 | HTTP **500** `API key is not configured` | `API_KEY` secret missing (prod) or `.dev.vars` missing (local) | `npx wrangler secret put API_KEY` (prod) or create `backend/.dev.vars` (local) — never `[vars]`, that collides with the secret (`10053`) |
-| HTTP **401** from UI | Frontend key ≠ Worker key | Align `VITE_API_KEY` with `API_KEY`; restart Vite / rebuild |
+| HTTP **401** from UI | Worker restarted with a rotated `API_KEY`, or `POST /api/session` failing (429 rate limit) | Tokens are renewed automatically (1× retry on 401); if it persists check Worker logs and wait up to 1 min if you hit the 60 req/min session limit |
 | UI loads but logs empty | Firestore rules block read, or no data yet | Allow read for `usage_logs` in rules; trigger a filter run |
 | Scrape 500 from Worker | Both HTML **and** official HN API failed | Error message shows `Failed to fetch Hacker News from HTML and API. HTML: … API: …`; check network / HN status in Worker logs |
 | Scrape works but logs show `419 Sorry` from `news.ycombinator.com` | HN blocks Cloudflare IPs (HTML source) | Expected in prod — the scraper auto-falls back to `hacker-news.firebaseio.com`; look for `[scraper] … using official HN API` and `lastSource: "api"` |
@@ -653,7 +667,7 @@ npx wrangler deploy
 # UI Execution → Scheduled → Every N hours → Save (frequency_hours)
 
 cd ../frontend
-# set VITE_API_BASE_URL + VITE_API_KEY
+# set VITE_API_BASE_URL (no API key: the UI fetches session tokens)
 npm run build
 # publish dist/ (e.g. Cloudflare Pages)
 ```

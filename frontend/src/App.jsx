@@ -6,7 +6,7 @@ import ResultsTable from './components/ResultsTable.jsx';
 import AuditLogsTable from './components/AuditLogsTable.jsx';
 import ScheduleConfig from './components/ScheduleConfig.jsx';
 import { fetchEntries, scrapeNow, getSystemConfig, updateSystemConfig, saveUsageLog } from './services/api.js';
-import { subscribeUsageLogs, subscribeEntriesCache } from './services/firebase.js';
+import { subscribeUsageLogsPage, countUsageLogs, subscribeEntriesCache } from './services/firebase.js';
 import { applyViewOptions, countWords } from './utils/entriesView.js';
 import './App.css';
 
@@ -19,6 +19,10 @@ export default function App() {
   const [meta, setMeta] = useState(null);
   const [logs, setLogs] = useState([]);
   const [logsError, setLogsError] = useState(null);
+  const [logPage, setLogPage] = useState(0);
+  const [logPageSize, setLogPageSize] = useState(20);
+  const [logTotal, setLogTotal] = useState(null);
+  const [logCursors, setLogCursors] = useState([null]);
   const [config, setConfig] = useState(null);
   const [mode, setMode] = useState('manual');
   const [frequencyHours, setFrequencyHours] = useState(2);
@@ -50,17 +54,73 @@ export default function App() {
   );
 
   useEffect(() => {
-    const unsubscribeLogs = subscribeUsageLogs(setLogs, (err) => setLogsError(err.message));
     const unsubscribeEntries = subscribeEntriesCache(
       setCachedEntries,
       (err) => setError(err.message)
     );
 
     return () => {
-      unsubscribeLogs();
       unsubscribeEntries();
     };
   }, []);
+
+  // One query per page change: at most `logPageSize` rows (10/20/50).
+  useEffect(() => {
+    const cursor = logCursors[logPage] ?? null;
+
+    const unsubscribeLogs = subscribeUsageLogsPage(
+      cursor,
+      logPageSize,
+      (docs) => {
+        setLogs(docs.map((docSnapshot) => ({ id: docSnapshot.id, ...docSnapshot.data() })));
+
+        // Remember where the next page starts (cursor = last doc of this page).
+        if (docs.length === logPageSize) {
+          setLogCursors((previous) =>
+            previous.length === logPage + 1
+              ? [...previous, docs[docs.length - 1]]
+              : previous
+          );
+        }
+      },
+      (err) => setLogsError(err.message)
+    );
+
+    return () => {
+      unsubscribeLogs();
+    };
+    // `logCursors` is deliberately not a dependency: cursor pushes happen
+    // while the current page is open and must not re-run this query.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [logPage, logPageSize]);
+
+  // Total row count, refreshed on every page / page-size change.
+  useEffect(() => {
+    let cancelled = false;
+
+    countUsageLogs()
+      .then((count) => {
+        if (!cancelled) setLogTotal(count);
+      })
+      .catch(() => {
+        if (!cancelled) setLogTotal(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [logPage, logPageSize]);
+
+  const hasLogNext =
+    logCursors[logPage + 1] != null &&
+    (logTotal === null || (logPage + 1) * logPageSize < logTotal);
+
+  const changeLogPageSize = (size) => {
+    setLogCursors([null]);
+    setLogPageSize(size);
+    setLogPage(0);
+    setLogs([]);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -236,7 +296,6 @@ export default function App() {
   return (
     <div className="app-shell">
       <TopBar
-        logCount={logs.length}
         mode={mode}
         onOpenLogs={() => setOpenPanel('logs')}
         onOpenSchedule={() => setOpenPanel('schedule')}
@@ -269,7 +328,17 @@ export default function App() {
       </main>
 
       <Modal open={openPanel === 'logs'} title="Audit logs" onClose={() => setOpenPanel(null)}>
-        <AuditLogsTable logs={logs} error={logsError} />
+        <AuditLogsTable
+          logs={logs}
+          error={logsError}
+          page={logPage}
+          pageSize={logPageSize}
+          total={logTotal}
+          hasNext={hasLogNext}
+          onPrev={() => setLogPage((current) => Math.max(0, current - 1))}
+          onNext={() => setLogPage((current) => current + 1)}
+          onPageSizeChange={changeLogPageSize}
+        />
       </Modal>
 
       <Modal

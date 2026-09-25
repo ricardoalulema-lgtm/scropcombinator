@@ -4,3 +4,13 @@ compatibility_date = "2026-09-01"
 
 [triggers]
 crons = ["0 * * * *"]
+
+# Limits POST /api/session to 60 token requests per minute per client IP
+# so nobody can farm bearer tokens.
+[[ratelimits]]
+name = "SESSION_RATE_LIMITER"
+namespace_id = "1001"
+
+[ratelimits.simple]
+limit = 60
+period = 60

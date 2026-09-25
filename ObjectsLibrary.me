@@ -477,7 +477,8 @@ Cloudflare runtime
 
 handleFetch
    ├── OPTIONS → CORS
-   ├── API key check (extractApiKey / isAuthorized)
+   ├── POST /api/session → handleSession (rate limit → createSessionToken)
+   ├── auth check (extractApiKey / isAuthorized: session token or static key)
    ├── GET /            → service info
    ├── GET /api/entries → handleEntriesQuery ── scraper + strategy + saveUsageLog
    ├── GET /api/scrape  → handleManualScrape ── scraper + saveEntries + saveUsageLog
@@ -487,18 +488,19 @@ createServices(env)
    ├── HackerNewsScraper
    ├── WordCounter + 2 strategies
    ├── FirestoreRestRepository
-   └── apiKey (env.API_KEY)
+   ├── apiKey (env.API_KEY)
+   └── sessionRateLimiter (env.SESSION_RATE_LIMITER binding)
 ```
 
 | Related object | Relationship |
 |---|---|
 | `HackerNewsScraper`, strategies, `FirestoreRestRepository` | Assembled in `createServices` and injected into handlers. |
 | `wrangler secret` / `backend/.dev.vars` | Supplies `API_KEY` (secret in production; gitignored `.dev.vars` in local dev — `wrangler.toml` has no `[vars] API_KEY`). |
-| Frontend `api.js` | HTTP client calling these routes with `x-api-key`. |
+| Frontend `api.js` | HTTP client calling these routes with a `Bearer` session token from `POST /api/session` (no static key in the bundle). |
 
 ### Description & characteristics
 
-Main Worker entry: single fetch router for all HTTP traffic plus cron handler. Enforces static API key on every non-OPTIONS request. Exports only handler-related symbols (extra named exports break workerd).
+Main Worker entry: single fetch router for all HTTP traffic plus cron handler. Issues short-lived session tokens (`POST /api/session`, rate-limited) and enforces credentials on every other non-OPTIONS request (session token or legacy static key). Exports only handler-related symbols (extra named exports break workerd).
 
 ### Variables (module)
 
@@ -513,8 +515,9 @@ Main Worker entry: single fetch router for all HTTP traffic plus cron handler. E
 |---|---|
 | `json(data, status)` | JSON response helper with CORS. |
 | `buildSaveReason`, `currentHourKey`, `hoursBetween`, `resolveFrequencyHours`, `scheduledFrequencyLabel` | Schedule/audit helpers imported from `utils/schedule.js` (see §9b). |
-| `extractApiKey(request)` | Reads `x-api-key` or Bearer token. |
-| `isAuthorized(request, apiKey)` | Constant-time-enough equality check; fails closed. |
+| `extractApiKey(request)` | Reads `x-api-key` or Bearer credential. |
+| `isAuthorized(request, apiKey)` (async) | Accepts the static key or verifies an HMAC session token (`utils/sessionToken.js`) in constant time; fails closed. |
+| `handleSession(request, services)` | Rate-limits per client IP, returns `{ token, token_type, expires_in, expires_at }`. |
 | `createServices(env)` | DI container for one request/cron invocation. |
 | `handleEntriesQuery(url, services)` | Auth already passed; scrape → strategy or `NO_FILTER` → audit → JSON. |
 | `handleManualScrape(services)` | Scrape → `saveEntries` → audit `(manual)`. |
@@ -576,6 +579,49 @@ Pure functions shared by the Worker and the integration test so the audit value 
 
 ---
 
+## 9c. `sessionToken.js` (HMAC bearer tokens)
+
+**File:** `backend/src/utils/sessionToken.js`
+
+### Relational diagram
+
+```
+frontend api.js ──POST /api/session──► worker.js (handleSession)
+                                              │ createSessionToken(apiKey)
+                                              ▼
+                                     sessionToken.js ── crypto.subtle HMAC-SHA256
+                                              ▲                 (secret = env.API_KEY, never sent)
+worker.js (isAuthorized) ── verifySessionToken(apiKey, token)
+tests/sessionToken.test.js ── unit coverage
+```
+
+| Related object | Relationship |
+|---|---|
+| `worker.js` | `handleSession` mints tokens; `isAuthorized` verifies them on every request. |
+| `env.API_KEY` (secret) | HMAC key; stays server-side. |
+| Frontend `api.js` | Stores the returned token in memory and renews it before expiry. |
+
+### Description & characteristics
+
+Pure module producing `<expiry>.<64-hex>` tokens signed with HMAC-SHA256 over the expiry timestamp. TTL defaults to 900 s (15 min). Verification checks format, expiry and signature (constant-time compare via `crypto.subtle`); any failure → `false` (caller answers `401`). Enables API use from the browser **without embedding the static key** in the public bundle.
+
+### Functions
+
+| Function | What it does |
+|---|---|
+| `createSessionToken(secret, ttlSeconds?)` | `{ token, expiresAt, expiresIn }` — signs a fresh token. |
+| `verifySessionToken(secret, token, nowSeconds?)` | `true` only for a well-formed, unexpired token signed with `secret`. |
+| `constantTimeEquals(a, b)` (internal) | Length-safe constant-time string compare. |
+| `DEFAULT_TTL_SECONDS` | `900`. |
+
+### Related objects list
+
+- `worker.js`
+- `frontend/src/services/api.js`
+- `tests/sessionToken.test.js`
+
+---
+
 ## 10. `firebaseConfig` & `createFirestoreDb` (backend config)
 
 **Files:** `backend/src/config/firebaseConfig.js`, `backend/src/config/firebase.js`
@@ -627,21 +673,21 @@ Separates Firebase credentials from business logic. Factory `createFirestoreDb()
 
 ```
 App
- ├── TopBar ── onOpenLogs / onOpenSchedule / logCount / mode
+ ├── TopBar ── onOpenLogs / onOpenSchedule / mode
  ├── FilterControls ── selectedFilter, onRun, onScrape
  ├── ResultsTable ── displayedResults, meta, source
- ├── Modal(logs) ── AuditLogsTable (logs, logsError)
+ ├── Modal(logs) ── AuditLogsTable (logs, error, page/pageSize/total + pagination callbacks)
  └── Modal(schedule) ── ScheduleConfig + footer Save
          │
          ├── api.js (fetchEntries, scrapeNow, get/updateSystemConfig)
-         └── firebase.js (subscribeUsageLogs, subscribeEntriesCache)
+         └── firebase.js (subscribeUsageLogsPage, countUsageLogs, subscribeEntriesCache)
 ```
 
 | Related object | Relationship |
 |---|---|
 | `TopBar`, `Modal`, panels | Composition / layout ownership. |
 | `api.js` | Manual HTTP actions (filters, scrape, config). |
-| `firebase.js` | Realtime subscriptions for cache + audit logs. |
+| `firebase.js` | Realtime cache subscription + paginated audit-log queries (one query per page change). |
 
 ### Description & characteristics
 
@@ -696,22 +742,21 @@ TopBar
   ├── brand (static)
   └── menu buttons
         ├── Execution ──► App.openPanel='schedule' (+ mode pill)
-        └── Logs ───────► App.openPanel='logs' (+ logCount badge)
+        └── Logs ───────► App.openPanel='logs'
 ```
 
 | Related object | Relationship |
 |---|---|
-| `App` | Callback props open modals; receives `logCount` and `mode`. |
+| `App` | Callback props open modals; receives `mode`. |
 
 ### Description & characteristics
 
-Sticky header with brand and navigation to **all secondary features** in one place (logs + execution), keeping Results as the main body.
+Sticky header with brand and navigation to **all secondary features** in one place (logs + execution), keeping Results as the main body. The Logs button has **no count badge** — the row total lives inside the Logs modal (`AuditLogsTable`).
 
 ### Variables (props)
 
 | Prop | Type | Description |
 |---|---|---|
-| `logCount` | `number` | Badge on Logs button. |
 | `onOpenLogs` | `function` | Opens logs modal. |
 | `onOpenSchedule` | `function` | Opens execution modal. |
 | `mode` | `'manual' \| 'scheduled'` | Pill color/label. |
@@ -908,21 +953,24 @@ Tested in `frontend/src/utils/entriesView.test.js` (Vitest).
 ### Relational diagram
 
 ```
-firebase.subscribeUsageLogs ──onSnapshot──► App.logs ──► Modal ──► AuditLogsTable
+firebase.subscribeUsageLogsPage ──onSnapshot──► App.logs ──► Modal ──► AuditLogsTable
+        (+ countUsageLogs ──► App.logTotal)                      │
+                                                                 ▼
+                                              pagination controls (10/20/50, prev/next)
 ```
 
 | Related object | Relationship |
 |---|---|
-| `firebase.js` | Data originates from realtime `usage_logs` query. |
+| `firebase.js` | One paginated query per page change (`limit` = rows per page) + total via aggregation. |
 | `Modal` / `TopBar` | Displayed only when logs modal is open (from top menu). |
 
 ### Description & characteristics
 
-Realtime audit trail table (timestamp, filter, results, type badge, execution ms). Used inside the Logs modal.
+Realtime audit trail table with a leading **`#` column** numbered continuously across pages (`page * pageSize + index + 1`) plus timestamp, filter, results, type badge and execution ms. The header shows **`Total rows`** (aggregation count) and a pagination bar: **rows per page** (`10`/`20`/`50`, default `20`), **Previous/Next** and **`Page X of Y`**. Each page change triggers exactly one new Firestore query capped at the selected page size (never more than 50 docs). Used inside the Logs modal.
 
 ### Props
 
-`logs` (array), `error` (string|null).
+`logs` (array), `error` (string|null), `page` (number, 0-based), `pageSize` (10|20|50), `total` (number|null), `hasNext` (boolean), `onPrev`, `onNext`, `onPageSizeChange`.
 
 ### Constructor
 
@@ -935,7 +983,7 @@ None.
 ### Related objects list
 
 - `App`
-- `firebase.js` (`subscribeUsageLogs`)
+- `firebase.js` (`subscribeUsageLogsPage`)
 - `Modal`
 
 ---
@@ -999,35 +1047,37 @@ Render + prop callbacks only (save lives in `App` footer).
 ```
 App ──► api.fetchEntries / scrapeNow / getSystemConfig / updateSystemConfig
               │
-              ▼  headers: x-api-key, content-type
+              │  POST /api/session (once) → Bearer token cached in memory
+              ▼  headers: authorization: Bearer <token>, content-type
         Worker http://localhost:8787 (or VITE_API_BASE_URL)
 ```
 
 | Related object | Relationship |
 |---|---|
 | Worker routes | 1:1 mapping to backend endpoints. |
-| Worker `API_KEY` (secret / `.dev.vars`) | Client must send matching `VITE_API_KEY` / default. |
+| `POST /api/session` | Source of the short-lived bearer token; refreshed 60 s before expiry, retried once on `401`. The static `API_KEY` never appears in the bundle (`VITE_API_KEY` removed). |
 
 ### Description & characteristics
 
-Thin `fetch` wrapper: base URL + **static API key header**, JSON parse, throws `Error` on non-OK with server message.
+Thin `fetch` wrapper: base URL + **bearer session token**, JSON parse, throws `Error` on non-OK with server message. Token state (`cachedToken`, `tokenExpiresAt`) lives in module memory — a page reload simply fetches a new one.
 
 ### Variables
 
 | Name | Description |
 |---|---|
 | `API_BASE_URL` | `VITE_API_BASE_URL` or `http://localhost:8787`. |
-| `API_KEY` | `VITE_API_KEY` or local static default. |
+| `cachedToken` / `tokenExpiresAt` (internal) | In-memory session token and its renewal deadline. |
 
 ### Methods (exports)
 
 | Export | What it does |
 |---|---|
-| `request(path, options)` (internal) | Shared fetch/error handling. |
+| `request(path, options, isRetry)` (internal) | Attaches `Bearer` token, handles JSON/errors, one retry on `401` with a fresh token. |
 | `fetchEntries(filterId)` | `GET /api/entries?filter=…`. |
 | `scrapeNow()` | `GET /api/scrape`. |
 | `getSystemConfig()` | `GET /api/config`. |
 | `updateSystemConfig(payload)` | `PUT /api/config` with JSON body. |
+| `saveUsageLog(payload)` | `POST /api/logs` (`ORDER` / `SEARCH` audit). |
 
 ### Related objects list
 
@@ -1045,16 +1095,18 @@ Thin `fetch` wrapper: base URL + **static API key header**, JSON parse, throws `
 ```
 initializeApp(firebaseConfig) ──► getFirestore ──► db
         │
-        ├── subscribeUsageLogs(onLogs, onError) ── query usage_logs desc limit 50
+        ├── subscribeUsageLogsPage(cursor, pageSize, onDocs, onError)
+        │       ── query usage_logs desc, startAfter(cursor), limit pageSize (≤ 50)
+        ├── countUsageLogs() ── getCountFromServer(usage_logs) → total
         └── subscribeEntriesCache(onEntries, onError) ── query entries_cache limit 1
                     │ onSnapshot
                     ▼
-                  App state (logs / cachedEntries)
+                  App state (logs / logTotal / cachedEntries)
 ```
 
 | Related object | Relationship |
 |---|---|
-| `App` | Consumes both subscriptions on mount. |
+| `App` | Runs the paginated logs query per page change and the entries subscription on mount. |
 | Backend repositories | Write the same collections the frontend reads. |
 | Backend `firebaseConfig` | Same Firebase project credentials. |
 
@@ -1070,7 +1122,8 @@ Firebase web SDK bootstrap + realtime subscription helpers returning unsubscribe
 
 | Export | What it does |
 |---|---|
-| `subscribeUsageLogs(onLogs, onError)` | `onSnapshot` on `usage_logs` ordered by `timestamp` desc, limit 50; maps docs to `{ id, ...data }`. |
+| `subscribeUsageLogsPage(cursor, pageSize, onDocs, onError)` | `onSnapshot` on `usage_logs` ordered by `timestamp` desc with `limit(pageSize)` (10/20/50 — never > 50) and `startAfter(cursor)` when paging forward; emits the raw docs so `App` can map them and keep the next-page cursor. |
+| `countUsageLogs()` | `getCountFromServer` aggregation → total number of `usage_logs` documents (shown as "Total rows"). |
 | `subscribeEntriesCache(onEntries, onError)` | `onSnapshot` on `entries_cache`; emits `entries` array from first doc (or `[]`). |
 | `db` | Exported Firestore instance. |
 
@@ -1103,7 +1156,7 @@ Produced by `HackerNewsScraper.parse`, consumed by strategies, Worker responses,
 }
 ```
 
-Written by repositories; read realtime by `subscribeUsageLogs` → `AuditLogsTable`.
+Written by repositories; read realtime page by page via `subscribeUsageLogsPage` → `AuditLogsTable` (total from `countUsageLogs`).
 
 ## System config (plain object)
 

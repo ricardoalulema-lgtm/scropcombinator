@@ -1717,3 +1717,227 @@ Traceability from wrangler tail during the prod /api/scrape:
 
 => HTML source is blocked by HN from Cloudflare IPs (419), the official
    API fallback provides the 30 entries, response shape unchanged.
+step 2 - test real web
+[
+  {
+    "number": 1,
+    "title": "F-Droid 2.0",
+    "points": 836,
+    "comments": 237
+  },
+  {
+    "number": 2,
+    "title": "Show HN: Koi.rest – watch some fish and regain your balance",
+    "points": 73,
+    "comments": 16
+  },
+  {
+    "number": 3,
+    "title": "Show HN: Make cursed fonts like Times New Bastard",
+    "points": 386,
+    "comments": 56
+  },
+  {
+    "number": 4,
+    "title": "California is chasing wealth that has feet",
+    "points": 69,
+    "comments": 186
+  },
+  {
+    "number": 5,
+    "title": "Show HN: Whiteboard (YC W26) – An open-source IDE for thoughtful software design",
+    "points": 161,
+    "comments": 72
+  },
+  {
+    "number": 6,
+    "title": "Why is the liver so weirdly regenerative?",
+    "points": 188,
+    "comments": 129
+  },
+  {
+    "number": 7,
+    "title": "Fearless SIMD v1.0",
+    "points": 148,
+    "comments": 27
+  },
+  {
+    "number": 8,
+    "title": "2DWillNeverDie",
+    "points": 57,
+    "comments": 4
+  },
+  {
+    "number": 9,
+    "title": "My weird new hobby: Wandering around Tokyo on Google Maps",
+    "points": 175,
+    "comments": 76
+  },
+  {
+    "number": 10,
+    "title": "Rails World 2026 Opening Keynote [video]",
+    "points": 193,
+    "comments": 213
+  },
+  {
+    "number": 11,
+    "title": "Using LLMs to trace alchemical knowledge and decode 17th century letters",
+    "points": 46,
+    "comments": 8
+  },
+  {
+    "number": 12,
+    "title": "International observers to investigate Swedish election fraud",
+    "points": 20,
+    "comments": 5
+  },
+  {
+    "number": 13,
+    "title": "Back and shoulder surgery is often worse than useless",
+    "points": 5,
+    "comments": 1
+  },
+  {
+    "number": 14,
+    "title": "Google’s Project Suncatcher to put ML infrastructure in space",
+    "points": 82,
+    "comments": 139
+  },
+  {
+    "number": 15,
+    "title": "Stable (YC W20) Is Hiring Product Engineers",
+    "points": 0,
+    "comments": 0
+  },
+  {
+    "number": 16,
+    "title": "Toyota is taking the Corolla electric",
+    "points": 154,
+    "comments": 223
+  },
+  {
+    "number": 17,
+    "title": "Sourcehut account takeover via build logs (XSS in ansi2html)",
+    "points": 49,
+    "comments": 7
+  },
+  {
+    "number": 18,
+    "title": "Book review: Is parallel programming hard, and, if so, what can you do about it?",
+    "points": 77,
+    "comments": 21
+  },
+  {
+    "number": 19,
+    "title": "The Board Game of the Alpha Nerds (2014)",
+    "points": 28,
+    "comments": 17
+  },
+  {
+    "number": 20,
+    "title": "Security auditing in the age of (good enough) AI",
+    "points": 47,
+    "comments": 2
+  },
+  {
+    "number": 21,
+    "title": "Two-tier encryption in the UK",
+    "points": 357,
+    "comments": 366
+  },
+  {
+    "number": 22,
+    "title": "Forging 1024-bit RSA signatures in nearly SNFS time [pdf]",
+    "points": 45,
+    "comments": 6
+  },
+  {
+    "number": 23,
+    "title": "The forgotten battle of East Lansing",
+    "points": 75,
+    "comments": 12
+  },
+  {
+    "number": 24,
+    "title": "Geothermal heat map of US hot springs",
+    "points": 73,
+    "comments": 29
+  },
+  {
+    "number": 25,
+    "title": "Early rogue AI agent activity and attempts to hack found on urlquery.net",
+    "points": 233,
+    "comments": 213
+  },
+  {
+    "number": 26,
+    "title": "Tutoring company tells parents to save their money and 'use AI instead'",
+    "points": 66,
+    "comments": 106
+  },
+  {
+    "number": 27,
+    "title": "WaveDigger: Dig into wireless signals to discover their physical locations",
+    "points": 83,
+    "comments": 13
+  },
+  {
+    "number": 28,
+    "title": "Opus 5.5 is good at explainer videos",
+    "points": 99,
+    "comments": 73
+  },
+  {
+    "number": 29,
+    "title": "Show HN: AgentRun: DSL to turn agents into workflows",
+    "points": 38,
+    "comments": 6
+  },
+  {
+    "number": 30,
+    "title": "Show HN: Critic – Review code with the agent that wrote it",
+    "points": 5,
+    "comments": 1
+  }
+]
+
+step 10 - session tokens: frontend no longer embeds the API key - 2026-09-24
+
+Problem: VITE_API_KEY was compiled into the public Pages bundle, so anyone
+could read it with DevTools and call the API (shared static secret = no auth).
+
+Solution (option 1 approved): short-lived HMAC bearer tokens.
+  - New backend/src/utils/sessionToken.js: createSessionToken / verifySessionToken
+    (HMAC-SHA256 over the expiry, signed with the server API_KEY secret;
+    token = "<expiry>.<64-hex>", TTL 900 s, constant-time signature compare).
+  - POST /api/session (unauthenticated entry point) returns
+    { token, token_type: "Bearer", expires_in: 900, expires_at } and is
+    protected by a Cloudflare Rate Limiting binding
+    (wrangler.toml [[ratelimits]] SESSION_RATE_LIMITER: 60 req/min per IP;
+    exceeded -> 429). Server without API_KEY -> 500 (fail-closed).
+  - Every other route now accepts Authorization: Bearer <session token>
+    in addition to the legacy x-api-key / Bearer <API_KEY> (no breaking change).
+  - Frontend frontend/src/services/api.js: no more VITE_API_KEY; requests a
+    token once, caches it in memory, renews 60 s before expiry and retries
+    once on 401. Vite bundle verified clean of any key.
+
+Tests: Test Files 11 passed, Tests 139 passed (123 before + 8 sessionToken
++ 8 worker session). Frontend: oxlint 0 errors, 8 tests, build OK.
+
+New tests (verbose):
+  sessionToken.test.js: shape <expiry>.<64-hex> / TTL 900 / verify fresh /
+    reject expired / reject forged expiry / reject tampered signature /
+    reject wrong secret / reject malformed credentials
+  worker.test.js > worker - session tokens: issue token without credentials /
+    429 when rate limiter rejects / client IP passed to limiter + token /
+    accept valid Bearer token (entries 200) / reject expired token 401 /
+    reject tampered token 401 / fail-closed 500 without API key /
+    legacy x-api-key still accepted 200
+
+Local smoke (wrangler dev --port 8787 with the new [[ratelimits]] binding):
+  1) GET /            with x-api-key            -> 200
+  2) POST /api/session                          -> 200 token=1790292299.049838b57... expires_in=900
+  3) GET /api/entries  Bearer <token>           -> 200 results_count=30
+  4) GET /api/entries  no credentials           -> 401
+  5) GET /api/config   legacy x-api-key         -> 200
+  Frontend bundle check: dist/assets/*.js has NO key string; references /api/session.
